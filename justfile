@@ -49,7 +49,7 @@ alias fmt := format
     -rm bom.txt > /dev/null 2>&1
 
 # Documents the project, builds and installs the release version, and cleans up
-@release: format
+@release: format changelog
     cargo lbuild --release  --color 'always'
     cargo strip
     cp {{invocation_directory()}}/target/release/{{application}} /usr/local/bin/
