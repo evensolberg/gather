@@ -110,7 +110,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     // Verify that the target exists and that it is a directory
     let target_dir = cli_args.value_of("target").unwrap();
-    log::debug!("target_dir: {:?}", target_dir);
+    log::trace!("target_dir: {:?}", target_dir);
     let td_metadata = std::fs::metadata(&target_dir);
     match td_metadata {
         Ok(td_md) => {
