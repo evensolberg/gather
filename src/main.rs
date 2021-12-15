@@ -1,5 +1,8 @@
 use clap::{App, Arg}; // Command line
 use std::error::Error;
+use std::path::Path;
+
+use glob::glob;
 
 // Logging
 use env_logger::{Builder, Target};
@@ -13,13 +16,41 @@ fn run() -> Result<(), Box<dyn Error>> {
         .about(clap::crate_description!())
         .version(clap::crate_version!())
         // .author(clap::crate_authors!("\n"))
-        .long_about("This program will do something.")
+        .long_about("Gathers files from directories and subdirectories into a target directory.")
         .arg(
             Arg::with_name("read")
                 .value_name("FILE(S)")
-                .help("One or more file(s) to process. Wildcards and multiple files (e.g. 2019*.pdf 2020*.pdf) are supported.")
+                .help("One or more file(s) to process. Wildcards and multiple files (e.g. 2019*.pdf 2020*.pdf) are supported. Use ** glob to recurse (i.e. **/*.pdf)")
                 .takes_value(true)
+                .required(true)
                 .multiple(true),
+        )
+        .arg(
+            Arg::with_name("target")
+                .value_name("TARGET")
+                .help("The target directory into which files are to be gathered.")
+                .takes_value(true)
+                .required(true)
+                .last(true)
+                .multiple(false),
+        )
+        .arg( // Move rather than copy files
+            Arg::with_name("move")
+                .short("m")
+                .long("move")
+                .multiple(true)
+                .help("Move files instead of copying them.")
+                .takes_value(false)
+                .hidden(false),
+        )
+        .arg( // Stop on error
+            Arg::with_name("stop")
+                .short("s")
+                .long("stop-on-error")
+                .multiple(true)
+                .help("Stop on error. If this flag isn't set, the application will attempt to continue in case of error.")
+                .takes_value(false)
+                .hidden(false),
         )
         .arg( // Hidden debug parameter
             Arg::with_name("debug")
@@ -28,7 +59,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 .multiple(true)
                 .help("Output debug information as we go. Supply it twice for trace-level logs.")
                 .takes_value(false)
-                .hidden(true),
+                .hidden(false),
         )
         .arg( // Don't print any information
             Arg::with_name("quiet")
@@ -39,19 +70,19 @@ fn run() -> Result<(), Box<dyn Error>> {
                 .takes_value(false)
         )
         .arg( // Print summary information
-            Arg::with_name("print-summary")
-                .short("p")
+            Arg::with_name("summary")
+                .short("u")
                 .long("print-summary")
                 .multiple(false)
-                .help("Print summary detail for each session processed.")
+                .help("Print summary information about the number of files gathered.")
                 .takes_value(false)
         )
-        .arg( // Don't export detail information
+        .arg( // Don't show detail information
             Arg::with_name("detail-off")
                 .short("o")
                 .long("detail-off")
                 .multiple(false)
-                .help("Don't export detailed information about each file processed.")
+                .help("Don't print detailed information about each file processed.")
                 .takes_value(false)
         )
         .get_matches();
@@ -73,6 +104,148 @@ fn run() -> Result<(), Box<dyn Error>> {
     // Initialize logging
     logbuilder.target(Target::Stdout).init();
 
+    // create a list of the files to gather
+    let files_to_gather = cli_args.values_of("read").unwrap();
+    log::debug!("files_to_gather: {:?}", files_to_gather);
+
+    // Verify that the target exists and that it is a directory
+    let target_dir = cli_args.value_of("target").unwrap();
+    log::debug!("target_dir: {:?}", target_dir);
+    let td_metadata = std::fs::metadata(&target_dir);
+    match td_metadata {
+        Ok(td_md) => {
+            if !td_md.is_dir() {
+                return Err("Specified target is not a directory. Unable to proceed.".into());
+            } else {
+                log::debug!("Specified target is a directory. Procceeding.");
+            }
+        }
+        Err(err) => {
+            let error_message = format!("Target: {}", err);
+            return Err(error_message.into());
+        }
+    }
+
+    let move_files = cli_args.is_present("move");
+    if move_files {
+        log::info!("Move flag set. Gathering files by moving.");
+    } else {
+        log::info!("Move flag not set. Gathering files by copying.");
+    }
+
+    let stop_on_error = cli_args.is_present("stop");
+    if stop_on_error {
+        log::info!("Stop on error flag set. Will stop if errors occur.");
+    } else {
+        log::info!("Stop on error flag not set. Will attempt to continue in case of errors.");
+    }
+
+    let show_detail_info = !cli_args.is_present("detail-off");
+
+    let mut total_file_count: usize = 0;
+    let mut processed_file_count: usize = 0;
+    let mut skipped_file_count: usize = 0;
+
+    // Gather files
+    for filename in files_to_gather {
+        for entry in glob(filename).unwrap() {
+            if let Ok(path) = entry {
+                let new_filename = Path::new(target_dir).join(Path::new(path.file_name().unwrap()));
+                let targetfile = new_filename.as_path();
+
+                total_file_count += 1;
+
+                if move_files {
+                    log::debug!(
+                        "Moving file {} to {}",
+                        &path.to_str().unwrap(),
+                        &targetfile.display()
+                    );
+                    match std::fs::rename(&path, targetfile) {
+                        Ok(_) => {
+                            if show_detail_info {
+                                log::info!(
+                                    "  {} ==> {}",
+                                    path.to_str().unwrap(),
+                                    targetfile.to_str().unwrap()
+                                );
+                            }
+                            processed_file_count += 1;
+                        }
+                        Err(err) => {
+                            if stop_on_error {
+                                return Err(format!(
+                                    "Error: {}. Unable to move file {} to {}. Halting.",
+                                    err,
+                                    path.to_str().unwrap(),
+                                    targetfile.to_str().unwrap()
+                                )
+                                .into());
+                            } else {
+                                log::warn!(
+                                    "Unable to move file {} to {}. Continuing.",
+                                    path.to_str().unwrap(),
+                                    targetfile.to_str().unwrap()
+                                );
+                                skipped_file_count += 1;
+                            }
+                        }
+                    }
+                } else {
+                    // Copy files
+                    log::debug!(
+                        "Copying file {} to {}",
+                        &path.to_str().unwrap(),
+                        &targetfile.display()
+                    );
+                    match std::fs::copy(&path.to_str().unwrap(), targetfile) {
+                        Ok(_) => {
+                            if show_detail_info {
+                                log::info!(
+                                    "  {} --> {}",
+                                    path.to_str().unwrap(),
+                                    targetfile.to_str().unwrap()
+                                );
+                            }
+                            processed_file_count += 1;
+                        }
+                        Err(err) => {
+                            if stop_on_error {
+                                return Err(format!(
+                                    "Error: {}. Unable to copy file {} to {}. Halting.",
+                                    err,
+                                    path.to_str().unwrap(),
+                                    targetfile.to_str().unwrap()
+                                )
+                                .into());
+                            } else {
+                                log::warn!(
+                                    "Unable to copy file {} to {}. Continuing.",
+                                    path.to_str().unwrap(),
+                                    targetfile.to_str().unwrap()
+                                );
+                                skipped_file_count += 1;
+                            }
+                        }
+                    }
+                } // if move_files
+            } else {
+                log::error!("Unable to process {}", &entry?.to_str().unwrap());
+            }
+        }
+    }
+
+    // Print summary information
+    if cli_args.is_present("summary") {
+        log::info!("Total files examined:        {:5}", total_file_count);
+        if move_files {
+            log::info!("Files moved:                 {:5}", processed_file_count);
+        } else {
+            log::info!("Files copied:                {:5}", processed_file_count);
+        }
+        log::info!("Files skipped due to errors: {:5}", skipped_file_count);
+    }
+
     // Everything is a-okay in the end
     Ok(())
 } // fn run()
@@ -83,10 +256,6 @@ fn main() {
     std::process::exit(match run() {
         Ok(_) => 0, // everying is hunky dory - exit with code 0 (success)
         Err(err) => {
-            Builder::new()
-                .filter_level(LevelFilter::Error)
-                .target(Target::Stdout)
-                .init();
             log::error!("{}", err.to_string().replace("\"", ""));
             1 // exit with a non-zero return code, indicating a problem
         }

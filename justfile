@@ -104,6 +104,7 @@ alias fmt := format
     cargo add log
     cargo add env_logger
     git-chglog --init
+    git tag Initialt
 
 # Read the documentation
 @read:
