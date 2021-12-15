@@ -30,4 +30,4 @@ Gathers files from directories and subdirectories into a target directory.
 
 Currently, using `zsh` on the Mac, the program exits with an error if one of the `<FILE>` arguments isn't found (ie. `*.jpg *.jpeg *.png` - `*.jpeg` not found). This is due to how this is handled in the shell.
 
-You can work around this by using the following command: `setopt NO_NOMATCH`
+You can work around this by using the following command: `setopt NO_MATCH`
