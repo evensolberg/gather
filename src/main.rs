@@ -128,16 +128,16 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let move_files = cli_args.is_present("move");
     if move_files {
-        log::info!("Move flag set. Gathering files by moving.");
+        log::debug!("Move flag set. Gathering files by moving.");
     } else {
-        log::info!("Move flag not set. Gathering files by copying.");
+        log::debug!("Move flag not set. Gathering files by copying.");
     }
 
     let stop_on_error = cli_args.is_present("stop");
     if stop_on_error {
-        log::info!("Stop on error flag set. Will stop if errors occur.");
+        log::debug!("Stop on error flag set. Will stop if errors occur.");
     } else {
-        log::info!("Stop on error flag not set. Will attempt to continue in case of errors.");
+        log::debug!("Stop on error flag not set. Will attempt to continue in case of errors.");
     }
 
     let show_detail_info = !cli_args.is_present("detail-off");
