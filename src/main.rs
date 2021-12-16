@@ -2,8 +2,6 @@ use clap::{App, Arg}; // Command line
 use std::error::Error;
 use std::path::Path;
 
-use glob::glob;
-
 // Logging
 use env_logger::{Builder, Target};
 use log::LevelFilter;
@@ -52,6 +50,14 @@ fn run() -> Result<(), Box<dyn Error>> {
                 .takes_value(false)
                 .hidden(false),
         )
+        .arg( // Dry-run
+            Arg::with_name("dry-run")
+                .short("r")
+                .long("dry-run")
+                .multiple(false)
+                .help("Iterate through the files and produce output without actually processing anything.")
+                .takes_value(false)
+        )
         .arg( // Hidden debug parameter
             Arg::with_name("debug")
                 .short("d")
@@ -71,7 +77,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         )
         .arg( // Print summary information
             Arg::with_name("summary")
-                .short("u")
+                .short("p")
                 .long("print-summary")
                 .multiple(false)
                 .help("Print summary information about the number of files gathered.")
@@ -141,6 +147,10 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
 
     let show_detail_info = !cli_args.is_present("detail-off");
+    let dry_run = cli_args.is_present("dry-run");
+    if dry_run {
+        log::info!("Dry-run starting.");
+    }
 
     let mut total_file_count: usize = 0;
     let mut processed_file_count: usize = 0;
@@ -148,92 +158,81 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     // Gather files
     for filename in files_to_gather {
-        for entry in glob(filename).unwrap() {
-            if let Ok(path) = entry {
-                let new_filename = Path::new(target_dir).join(Path::new(path.file_name().unwrap()));
-                let targetfile = new_filename.as_path();
+        let new_filename =
+            Path::new(target_dir).join(Path::new(&filename).file_name().unwrap_or_default());
+        let targetfile = new_filename.as_path();
 
-                total_file_count += 1;
+        total_file_count += 1;
 
-                if move_files {
-                    log::debug!(
-                        "Moving file {} to {}",
-                        &path.to_str().unwrap(),
-                        &targetfile.display()
-                    );
-                    match std::fs::rename(&path, targetfile) {
-                        Ok(_) => {
-                            if show_detail_info {
-                                log::info!(
-                                    "  {} ==> {}",
-                                    path.to_str().unwrap(),
-                                    targetfile.to_str().unwrap()
-                                );
-                            }
-                            processed_file_count += 1;
-                        }
-                        Err(err) => {
-                            if stop_on_error {
-                                return Err(format!(
-                                    "Error: {}. Unable to move file {} to {}. Halting.",
-                                    err,
-                                    path.to_str().unwrap(),
-                                    targetfile.to_str().unwrap()
-                                )
-                                .into());
-                            } else {
-                                log::warn!(
-                                    "Unable to move file {} to {}. Continuing.",
-                                    path.to_str().unwrap(),
-                                    targetfile.to_str().unwrap()
-                                );
-                                skipped_file_count += 1;
-                            }
-                        }
-                    }
-                } else {
-                    // Copy files
-                    log::debug!(
-                        "Copying file {} to {}",
-                        &path.to_str().unwrap(),
-                        &targetfile.display()
-                    );
-                    match std::fs::copy(&path.to_str().unwrap(), targetfile) {
-                        Ok(_) => {
-                            if show_detail_info {
-                                log::info!(
-                                    "  {} --> {}",
-                                    path.to_str().unwrap(),
-                                    targetfile.to_str().unwrap()
-                                );
-                            }
-                            processed_file_count += 1;
-                        }
-                        Err(err) => {
-                            if stop_on_error {
-                                return Err(format!(
-                                    "Error: {}. Unable to copy file {} to {}. Halting.",
-                                    err,
-                                    path.to_str().unwrap(),
-                                    targetfile.to_str().unwrap()
-                                )
-                                .into());
-                            } else {
-                                log::warn!(
-                                    "Unable to copy file {} to {}. Continuing.",
-                                    path.to_str().unwrap(),
-                                    targetfile.to_str().unwrap()
-                                );
-                                skipped_file_count += 1;
-                            }
-                        }
-                    }
-                } // if move_files
+        if dry_run {
+            if move_files {
+                log::info!("  {} ==> {}", filename, targetfile.to_str().unwrap());
+                processed_file_count += 1;
             } else {
-                log::error!("Unable to process {}", &entry?.to_str().unwrap());
+                log::info!("  {} --> {}", filename, targetfile.to_str().unwrap());
+                processed_file_count += 1;
             }
-        }
-    }
+        } else {
+            if move_files {
+                log::debug!("Moving file {} to {}", filename, targetfile.display());
+                match std::fs::rename(&filename, targetfile) {
+                    Ok(_) => {
+                        if show_detail_info {
+                            log::info!("  {} ==> {}", filename, targetfile.to_str().unwrap());
+                        }
+                        processed_file_count += 1;
+                    }
+                    Err(err) => {
+                        if stop_on_error {
+                            return Err(format!(
+                                "Error: {}. Unable to move file {} to {}. Halting.",
+                                err,
+                                filename,
+                                targetfile.to_str().unwrap()
+                            )
+                            .into());
+                        } else {
+                            log::warn!(
+                                "Unable to move file {} to {}. Continuing.",
+                                filename,
+                                targetfile.to_str().unwrap()
+                            );
+                            skipped_file_count += 1;
+                        }
+                    }
+                }
+            } else {
+                // Copy files
+                log::debug!("Copying file {} to {}", &filename, &targetfile.display());
+                match std::fs::copy(&filename, targetfile) {
+                    Ok(_) => {
+                        if show_detail_info {
+                            log::info!("  {} --> {}", filename, targetfile.to_str().unwrap());
+                        }
+                        processed_file_count += 1;
+                    }
+                    Err(err) => {
+                        if stop_on_error {
+                            return Err(format!(
+                                "Error: {}. Unable to copy file {} to {}. Halting.",
+                                err,
+                                filename,
+                                targetfile.to_str().unwrap()
+                            )
+                            .into());
+                        } else {
+                            log::warn!(
+                                "Unable to copy file {} to {}. Continuing.",
+                                filename,
+                                targetfile.to_str().unwrap()
+                            );
+                            skipped_file_count += 1;
+                        }
+                    }
+                }
+            } // if move_files
+        } // if dry_run
+    } // for filename
 
     // Print summary information
     if cli_args.is_present("summary") {

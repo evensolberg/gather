@@ -142,7 +142,7 @@ alias fmt := format
 # Copy this settings files to the templates directory
 @just:
     cp {{invocation_directory()}}/justfile ~/CloudStation/Source/_Templates/justfile.template
-    -sd {{application}} gather ~/CloudStation/Source/_Templates/justfile.template
+    -sd {{application}} myapplication ~/CloudStation/Source/_Templates/justfile.template
     cp {{invocation_directory()}}/deny.toml ~/CloudStation/Source/_Templates/deny.toml
 
 # Check, but verbose
