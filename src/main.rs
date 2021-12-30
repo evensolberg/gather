@@ -18,7 +18,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         .arg(
             Arg::with_name("read")
                 .value_name("FILE(S)")
-                .help("One or more file(s) to process. Wildcards and multiple files (e.g. 2019*.pdf 2020*.pdf) are supported. Use ** glob to recurse (i.e. **/*.pdf)")
+                .help("One or more file(s) to process. Wildcards and multiple files (e.g. 2019*.pdf 2020*.pdf) are supported. Use ** glob to recurse (i.e. **/*.pdf). Note: Case sensitive.")
                 .takes_value(true)
                 .required(true)
                 .multiple(true),
