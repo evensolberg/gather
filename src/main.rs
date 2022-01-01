@@ -16,78 +16,78 @@ fn run() -> Result<(), Box<dyn Error>> {
         // .author(clap::crate_authors!("\n"))
         .long_about("Gathers files from directories and subdirectories into a target directory.")
         .arg(
-            Arg::with_name("read")
+            Arg::new("read")
                 .value_name("FILE(S)")
-                .help("One or more file(s) to process. Wildcards and multiple files (e.g. 2019*.pdf 2020*.pdf) are supported. Use ** glob to recurse (i.e. **/*.pdf). Note: Case sensitive.")
+                .help("One or more file(s) to process. Wildcards and multiple_occurrences files (e.g. 2019*.pdf 2020*.pdf) are supported. Use ** glob to recurse (i.e. **/*.pdf). Note: Case sensitive.")
                 .takes_value(true)
                 .required(true)
-                .multiple(true),
+                .multiple_occurrences(true),
         )
         .arg(
-            Arg::with_name("target")
+            Arg::new("target")
                 .value_name("TARGET")
                 .help("The target directory into which files are to be gathered.")
                 .takes_value(true)
                 .required(true)
                 .last(true)
-                .multiple(false),
+                .multiple_occurrences(false),
         )
         .arg( // Move rather than copy files
-            Arg::with_name("move")
-                .short("m")
+            Arg::new("move")
+                .short('m')
                 .long("move")
-                .multiple(true)
+                .multiple_occurrences(true)
                 .help("Move files instead of copying them.")
                 .takes_value(false)
-                .hidden(false),
+                .hide(false),
         )
         .arg( // Stop on error
-            Arg::with_name("stop")
-                .short("s")
+            Arg::new("stop")
+                .short('s')
                 .long("stop-on-error")
-                .multiple(true)
+                .multiple_occurrences(true)
                 .help("Stop on error. If this flag isn't set, the application will attempt to continue in case of error.")
                 .takes_value(false)
-                .hidden(false),
+                .hide(false),
         )
         .arg( // Dry-run
-            Arg::with_name("dry-run")
-                .short("r")
+            Arg::new("dry-run")
+                .short('r')
                 .long("dry-run")
-                .multiple(false)
+                .multiple_occurrences(false)
                 .help("Iterate through the files and produce output without actually processing anything.")
                 .takes_value(false)
         )
         .arg( // Hidden debug parameter
-            Arg::with_name("debug")
-                .short("d")
+            Arg::new("debug")
+                .short('d')
                 .long("debug")
-                .multiple(true)
+                .multiple_occurrences(true)
                 .help("Output debug information as we go. Supply it twice for trace-level logs.")
                 .takes_value(false)
-                .hidden(false),
+                .hide(false),
         )
         .arg( // Don't print any information
-            Arg::with_name("quiet")
-                .short("q")
+            Arg::new("quiet")
+                .short('q')
                 .long("quiet")
-                .multiple(false)
+                .multiple_occurrences(false)
                 .help("Don't produce any output except errors while working.")
                 .takes_value(false)
         )
         .arg( // Print summary information
-            Arg::with_name("summary")
-                .short("p")
+            Arg::new("summary")
+                .short('p')
                 .long("print-summary")
-                .multiple(false)
+                .multiple_occurrences(false)
                 .help("Print summary information about the number of files gathered.")
                 .takes_value(false)
         )
         .arg( // Don't show detail information
-            Arg::with_name("detail-off")
-                .short("o")
+            Arg::new("detail-off")
+                .short('o')
                 .long("detail-off")
-                .multiple(false)
+                .multiple_occurrences(false)
                 .help("Don't print detailed information about each file processed.")
                 .takes_value(false)
         )
@@ -111,8 +111,9 @@ fn run() -> Result<(), Box<dyn Error>> {
     logbuilder.target(Target::Stdout).init();
 
     // create a list of the files to gather
-    let files_to_gather = cli_args.values_of("read").unwrap();
-    log::debug!("files_to_gather: {:?}", files_to_gather);
+    for files_to_gather in cli_args.values_of("read").unwrap() {
+        log::debug!("files_to_gather: {:?}", files_to_gather);
+    }
 
     // Verify that the target exists and that it is a directory
     let target_dir = cli_args.value_of("target").unwrap();
@@ -157,7 +158,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut skipped_file_count: usize = 0;
 
     // Gather files
-    for filename in files_to_gather {
+    for filename in cli_args.values_of("read").unwrap() {
         let new_filename =
             Path::new(target_dir).join(Path::new(&filename).file_name().unwrap_or_default());
         let targetfile = new_filename.as_path();
