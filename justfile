@@ -168,9 +168,9 @@ alias r := release
 
 # Copy this settings files to the templates directory
 @just:
-    cp {{invocation_directory()}}/justfile ~/CloudStation/Source/_Templates/justfile.template
-    -sd {{application}} myapplication ~/CloudStation/Source/_Templates/justfile.template
-    cp {{invocation_directory()}}/deny.toml ~/CloudStation/Source/_Templates/deny.toml
+    -sed "s#{{application}}#my_application#" justfile > ~/CloudStation/Source/_Templates/justfile.template
+    -cp {{invocation_directory()}}/deny.toml ~/CloudStation/Source/_Templates/deny.toml
+    -cp {{invocation_directory()}}/cliff.toml ~/CloudStation/Source/_Templates/cliff.toml
 
 # Check, but verbose
 @checkv:
