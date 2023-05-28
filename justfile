@@ -111,7 +111,12 @@ alias r := release
 
 # Checks for potential code improvements
 @lint:
-    cargo lclippy
+    cargo lclippy -- -W clippy::pedantic -W clippy::nursery -W clippy::unwrap_used
+
+# Checks for potential code improvements and fixes what it can
+@lintfix:
+    cargo lclippy --fix -- -W clippy::pedantic -W clippy::nursery -W clippy::unwrap_used
+
 
 # Initialize directory for various services such as cargo deny
 @init:
