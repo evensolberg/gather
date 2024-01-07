@@ -2,6 +2,15 @@ use clap::parser::ValueSource;
 use env_logger::{Builder, Target};
 use log::LevelFilter;
 
+/// Verify that the target is a directory.
+///
+/// # Arguments
+///
+/// - `target: &str` - a string containing the path to whatever we want to check.
+///
+/// # Returns
+///
+/// - `Result<(), Box<dyn std::error::Error>>` - returns an empty `Ok()` if it is a directory, or an error if not.
 pub fn check_directory(target: &str) -> Result<(), Box<dyn std::error::Error>> {
     let td_metadata = std::fs::metadata(target);
     match td_metadata {
@@ -20,6 +29,7 @@ pub fn check_directory(target: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Build a logging configuration based on CLI input.
 pub fn log_build(cli_args: &clap::ArgMatches) -> Builder {
     // create a log builder
     let mut logbuilder = Builder::new();
