@@ -8,7 +8,7 @@ Gathers files from directories and subdirectories into a target directory.
 
 Example:
 
-`gather -m -u **/*.png **/*.jpg -- ../images/`
+`gather -m -p **/*.png **/*.jpg -- ../images/`
 
 ### Flags
 
