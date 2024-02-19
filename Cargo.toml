@@ -1,6 +1,6 @@
 [package]
 name = "gather"
-version = "0.2.2"
+version = "0.2.3"
 description = "Gathers files from directories and subdirectories into a target directory."
 license = "Apache-2.0"
 authors = ["evensolberg <even.solberg@gmail.com>"]

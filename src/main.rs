@@ -16,12 +16,11 @@ fn run() -> Result<(), Box<dyn Error>> {
     // Set up logging
     let _logbuilder = utils::log_build(&cli_args);
 
+    // create a list of the files to gather
     let sources = cli_args
         .get_many::<String>("read")
         .unwrap_or_default()
         .map(std::string::String::as_str);
-
-    // create a list of the files to gather
     log::debug!("files_to_gather: {sources:?}");
 
     // Verify that the target exists and that it is a directory
@@ -81,7 +80,6 @@ fn run() -> Result<(), Box<dyn Error>> {
                 }
             }
         } else {
-            // Copy files
             log::debug!("Copying {source} to {target}");
             match std::fs::copy(source, targetfile) {
                 Ok(_) => {
@@ -104,7 +102,6 @@ fn run() -> Result<(), Box<dyn Error>> {
         } // if dry_run
     } // for filename
 
-    // Print summary information
     if cli_args.value_source("summary") == Some(ValueSource::CommandLine) {
         log::info!("Total files examined:        {total_file_count:5}");
         if move_files {
@@ -115,7 +112,6 @@ fn run() -> Result<(), Box<dyn Error>> {
         log::info!("Files skipped due to errors: {skipped_file_count:5}");
     }
 
-    // Everything is a-okay in the end
     Ok(())
 } // fn run()
 
