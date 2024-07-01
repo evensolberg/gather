@@ -11,6 +11,6 @@ include = ["src/**/*", "README.md"]
 [dependencies]
 clap = { version = "4.5.7", features = ["cargo", "env", "wrap_help"] }
 env_logger = "0.10.2"
-log = "0.4.21"
+log = "0.4.22"
 
 [features]
