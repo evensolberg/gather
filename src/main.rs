@@ -52,7 +52,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         let Some(file_name) = Path::new(source).file_name() else {
             if stop_on_error {
                 return Err(
-                    format!("Invalid filename in path: {source}. Halting.").into(),
+                    format!("Error: Invalid filename in path: {source}. Halting.").into(),
                 );
             }
             log::warn!("Invalid filename in path: {source}. Continuing.");
@@ -61,10 +61,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         };
 
         let new_filename = Path::new(target_dir).join(file_name);
-        // to_str() is infallible here: both target_dir and source are already String (UTF-8).
-        let target = new_filename
-            .to_str()
-            .expect("target path is always valid UTF-8: target_dir and source are String");
+        let target = new_filename.display();
 
         if dry_run {
             if move_files {
