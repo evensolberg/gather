@@ -1,6 +1,10 @@
 use clap::{Arg, ArgAction, ArgMatches, Command};
 
 pub fn build() -> ArgMatches {
+    build_command().get_matches()
+}
+
+fn build_command() -> Command {
     Command::new(clap::crate_name!())
         .about(clap::crate_description!())
         .version(clap::crate_version!())
@@ -17,9 +21,10 @@ pub fn build() -> ArgMatches {
         .arg(
             Arg::new("target")
                 .value_name("TARGET")
-                .help("The target directory into which files are to be gathered.")
+                .help("The target directory into which files are to be gathered. Defaults to the current directory.")
                 .num_args(1)
-                .required(true)
+                .required(false)
+                .default_value(".")
                 .last(true)
                 .action(ArgAction::Set)
         )
@@ -87,5 +92,32 @@ pub fn build() -> ArgMatches {
                 .hide(false)
                 .action(ArgAction::SetTrue)
         )
-        .get_matches()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_command;
+
+    #[test]
+    fn target_defaults_to_current_directory_when_omitted() {
+        let matches = build_command()
+            .try_get_matches_from(["gather", "file.txt"])
+            .expect("parsing should succeed even without an explicit target");
+        assert_eq!(
+            matches.get_one::<String>("target").map(String::as_str),
+            Some(".")
+        );
+    }
+
+    #[test]
+    fn target_uses_provided_directory() {
+        // .last(true) means the target must appear after the -- separator
+        let matches = build_command()
+            .try_get_matches_from(["gather", "file.txt", "--", "/tmp/out"])
+            .expect("parsing should succeed with an explicit target after --");
+        assert_eq!(
+            matches.get_one::<String>("target").map(String::as_str),
+            Some("/tmp/out")
+        );
+    }
 }

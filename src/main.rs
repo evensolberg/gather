@@ -24,8 +24,9 @@ fn run() -> Result<(), Box<dyn Error>> {
     log::debug!("files_to_gather: {sources:?}");
 
     // Verify that the target exists and that it is a directory
-    let default = String::from(".");
-    let target_dir = cli_args.get_one::<String>("target").unwrap_or(&default);
+    let target_dir = cli_args
+        .get_one::<String>("target")
+        .expect("clap default_value ensures target is always present");
     log::trace!("target_dir: {target_dir:?}");
     utils::check_directory(target_dir)?;
 
@@ -45,10 +46,15 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     // Gather files
     for source in sources {
-        let new_filename =
-            Path::new(target_dir).join(Path::new(&source).file_name().unwrap_or_default());
+        let new_filename = Path::new(target_dir).join(
+            Path::new(&source)
+                .file_name()
+                .ok_or_else(|| format!("Invalid filename in path: {source}"))?,
+        );
         let targetfile = new_filename.as_path();
-        let target = targetfile.to_str().unwrap_or("(unknown target)");
+        let target = targetfile
+            .to_str()
+            .ok_or_else(|| format!("Invalid UTF-8 in target path: {targetfile:?}"))?;
 
         total_file_count += 1;
 
