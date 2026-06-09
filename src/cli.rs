@@ -21,9 +21,8 @@ fn build_command() -> Command {
         .arg(
             Arg::new("target")
                 .value_name("TARGET")
-                .help("The target directory into which files are to be gathered. Defaults to the current directory.")
+                .help("The target directory into which files are to be gathered.")
                 .num_args(1)
-                .required(false)
                 .default_value(".")
                 .last(true)
                 .action(ArgAction::Set)

@@ -26,7 +26,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     // Verify that the target exists and that it is a directory
     let target_dir = cli_args
         .get_one::<String>("target")
-        .expect("clap default_value ensures target is always present");
+        .ok_or("target argument is missing — this is a bug; default_value should guarantee it")?;
     log::trace!("target_dir: {target_dir:?}");
     utils::check_directory(target_dir)?;
 
