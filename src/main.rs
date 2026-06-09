@@ -24,8 +24,9 @@ fn run() -> Result<(), Box<dyn Error>> {
     log::debug!("files_to_gather: {sources:?}");
 
     // Verify that the target exists and that it is a directory
-    let default = String::from(".");
-    let target_dir = cli_args.get_one::<String>("target").unwrap_or(&default);
+    let target_dir = cli_args
+        .get_one::<String>("target")
+        .ok_or("target argument is missing — this is a bug; default_value should guarantee it")?;
     log::trace!("target_dir: {target_dir:?}");
     utils::check_directory(target_dir)?;
 
@@ -45,12 +46,22 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     // Gather files
     for source in sources {
-        let new_filename =
-            Path::new(target_dir).join(Path::new(&source).file_name().unwrap_or_default());
-        let targetfile = new_filename.as_path();
-        let target = targetfile.to_str().unwrap_or("(unknown target)");
-
         total_file_count += 1;
+
+        // Paths ending in "/" or ".." have no filename component — treat like any other error.
+        let Some(file_name) = Path::new(source).file_name() else {
+            if stop_on_error {
+                return Err(
+                    format!("Error: Invalid filename in path: {source}. Halting.").into(),
+                );
+            }
+            log::warn!("Invalid filename in path: {source}. Continuing.");
+            skipped_file_count += 1;
+            continue;
+        };
+
+        let new_filename = Path::new(target_dir).join(file_name);
+        let target = new_filename.display();
 
         if dry_run {
             if move_files {
@@ -61,8 +72,8 @@ fn run() -> Result<(), Box<dyn Error>> {
             processed_file_count += 1;
         } else if move_files {
             log::debug!("Moving {source} to {target}");
-            match std::fs::rename(source, targetfile) {
-                Ok(_) => {
+            match std::fs::rename(source, &new_filename) {
+                Ok(()) => {
                     if show_detail_info {
                         log::info!("  {source} --> {target}");
                     }
@@ -75,13 +86,13 @@ fn run() -> Result<(), Box<dyn Error>> {
                         )
                         .into());
                     }
-                    log::warn!("Unable to move {source} to {target}. Continuing.",);
+                    log::warn!("Unable to move {source} to {target}. Continuing.");
                     skipped_file_count += 1;
                 }
             }
         } else {
             log::debug!("Copying {source} to {target}");
-            match std::fs::copy(source, targetfile) {
+            match std::fs::copy(source, &new_filename) {
                 Ok(_) => {
                     if show_detail_info {
                         log::info!("  {source} ==> {target}");
@@ -119,7 +130,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 /// The actual executable function that gets called when the program in invoked.
 fn main() {
     std::process::exit(match run() {
-        Ok(_) => 0, // everying is hunky dory - exit with code 0 (success)
+        Ok(()) => 0, // everything is hunky dory - exit with code 0 (success)
         Err(err) => {
             log::error!("{}", err.to_string().replace('\"', ""));
             1 // exit with a non-zero return code, indicating a problem
