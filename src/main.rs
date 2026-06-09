@@ -1,7 +1,6 @@
 mod cli;
 mod utils;
 
-use clap::parser::ValueSource;
 use std::error::Error;
 use std::path::Path;
 
@@ -30,10 +29,10 @@ fn run() -> Result<(), Box<dyn Error>> {
     log::trace!("target_dir: {target_dir:?}");
     utils::check_directory(target_dir)?;
 
-    let move_files = cli_args.value_source("move") == Some(ValueSource::CommandLine);
-    let stop_on_error = cli_args.value_source("stop") == Some(ValueSource::CommandLine);
-    let show_detail_info = cli_args.value_source("detail-off") != Some(ValueSource::CommandLine);
-    let dry_run = cli_args.value_source("dry-run") == Some(ValueSource::CommandLine);
+    let move_files = cli_args.get_flag("move");
+    let stop_on_error = cli_args.get_flag("stop");
+    let show_detail_info = !cli_args.get_flag("detail-off");
+    let dry_run = cli_args.get_flag("dry-run");
     log::debug!("move_files: {move_files}, stop_on_error: {stop_on_error}, show_detail_info: {show_detail_info}, dry_run: {dry_run}");
 
     if dry_run {
@@ -51,9 +50,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         // Paths ending in "/" or ".." have no filename component — treat like any other error.
         let Some(file_name) = Path::new(source).file_name() else {
             if stop_on_error {
-                return Err(
-                    format!("Error: Invalid filename in path: {source}. Halting.").into(),
-                );
+                return Err(format!("Error: Invalid filename in path: {source}. Halting.").into());
             }
             log::warn!("Invalid filename in path: {source}. Continuing.");
             skipped_file_count += 1;
@@ -113,7 +110,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         } // if dry_run
     } // for filename
 
-    if cli_args.value_source("summary") == Some(ValueSource::CommandLine) {
+    if cli_args.get_flag("summary") {
         log::info!("Total files examined:        {total_file_count:5}");
         if move_files {
             log::info!("Files moved:                 {processed_file_count:5}");

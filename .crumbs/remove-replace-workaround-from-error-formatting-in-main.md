@@ -1,0 +1,21 @@
+---
+id: gtr-4h2
+title: Remove .replace('\"', "") workaround from error formatting in main()
+status: open
+type: task
+priority: 2
+tags:
+- code-quality
+- error-handling
+created: 2026-06-08
+updated: 2026-06-08
+phase: ''
+---
+
+# Remove .replace('\"', "") workaround from error formatting in main()
+
+main() calls `err.to_string().replace('"', "")` to strip stray quote characters
+from error messages. This is a code smell: Display impls should not emit literal
+quotes in normal error text. Using {err} (Display) rather than {err:?} (Debug)
+avoids unwanted quotes. Investigate the error constructors and fix Display
+formatting there; then remove the replace() call.
