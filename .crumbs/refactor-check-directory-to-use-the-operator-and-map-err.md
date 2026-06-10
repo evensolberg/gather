@@ -1,7 +1,7 @@
 ---
 id: gtr-4sh
 title: Refactor check_directory to use the ? operator and map_err
-status: open
+status: closed
 type: task
 priority: 2
 tags:
@@ -10,7 +10,8 @@ tags:
 - refactoring
 - utils
 created: 2026-06-08
-updated: 2026-06-08
+updated: 2026-06-09
+closed_reason: Implemented
 phase: ''
 ---
 

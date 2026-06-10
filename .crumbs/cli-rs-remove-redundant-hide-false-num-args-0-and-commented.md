@@ -1,7 +1,7 @@
 ---
 id: gtr-voo
 title: 'cli.rs: remove redundant .hide(false), .num_args(0), and commented-out .author()'
-status: open
+status: closed
 type: task
 priority: 2
 tags:
@@ -10,7 +10,8 @@ tags:
 - cleanup
 - cli
 created: 2026-06-08
-updated: 2026-06-08
+updated: 2026-06-09
+closed_reason: Done
 phase: ''
 ---
 

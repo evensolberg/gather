@@ -1,7 +1,7 @@
 ---
 id: gtr-lrc
 title: Set wildcards = warn in deny.toml (currently allow)
-status: open
+status: closed
 type: task
 priority: 2
 tags:
@@ -9,7 +9,8 @@ tags:
 - cargo-deny
 - dependencies
 created: 2026-06-08
-updated: 2026-06-08
+updated: 2026-06-09
+closed_reason: Set to warn for now
 phase: ''
 ---
 

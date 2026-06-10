@@ -1,7 +1,7 @@
 ---
 id: gtr-ar9
 title: Extract --summary flag to local bool before the loop (inconsistent with other flags)
-status: open
+status: closed
 type: task
 priority: 3
 tags:
@@ -9,7 +9,8 @@ tags:
 - clap
 - idiomatic
 created: 2026-06-08
-updated: 2026-06-08
+updated: 2026-06-09
+closed_reason: Fixed
 phase: ''
 ---
 

@@ -1,14 +1,15 @@
 ---
 id: gtr-zjr
 title: Add repository and keywords to Cargo.toml metadata
-status: open
+status: closed
 type: task
 priority: 3
 tags:
 - metadata
 - crates-io
 created: 2026-06-08
-updated: 2026-06-08
+updated: 2026-06-09
+closed_reason: Included
 phase: ''
 ---
 

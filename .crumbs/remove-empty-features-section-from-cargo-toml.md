@@ -1,14 +1,15 @@
 ---
 id: gtr-du6
 title: Remove empty [features] section from Cargo.toml
-status: open
+status: closed
 type: task
 priority: 4
 tags:
 - cleanup
 - cargo
 created: 2026-06-08
-updated: 2026-06-08
+updated: 2026-06-09
+closed_reason: Fixed
 phase: ''
 ---
 

@@ -1,7 +1,7 @@
 ---
 id: gtr-0du
 title: Change dry-run short flag from -r to -n (conventional)
-status: open
+status: closed
 type: task
 priority: 3
 tags:
@@ -9,7 +9,8 @@ tags:
 - convention
 - cli
 created: 2026-06-08
-updated: 2026-06-08
+updated: 2026-06-09
+closed_reason: Fixed
 phase: ''
 ---
 

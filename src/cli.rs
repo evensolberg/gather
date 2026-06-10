@@ -32,8 +32,6 @@ fn build_command() -> Command {
                 .short('m')
                 .long("move")
                 .help("Move files instead of copying them.")
-                .num_args(0)
-                .hide(false)
                 .action(ArgAction::SetTrue)
         )
         .arg( // Stop on error
@@ -41,17 +39,13 @@ fn build_command() -> Command {
                 .short('s')
                 .long("stop-on-error")
                 .help("Stop on error. If this flag isn't set, the application will attempt to continue in case of error.")
-                .num_args(0)
-                .hide(false)
                 .action(ArgAction::SetTrue)
         )
         .arg( // Dry-run
             Arg::new("dry-run")
-                .short('r')
+                .short('n')
                 .long("dry-run")
                 .help("Iterate through the files and produce output without actually processing anything.")
-                .num_args(0)
-                .hide(false)
                 .action(ArgAction::SetTrue)
         )
         .arg( // Hidden debug parameter
@@ -69,8 +63,6 @@ fn build_command() -> Command {
                 .short('q')
                 .long("quiet")
                 .help("Don't produce any output except errors while working.")
-                .num_args(0)
-                .hide(false)
                 .action(ArgAction::SetTrue)
         )
         .arg( // Print summary information
@@ -78,8 +70,6 @@ fn build_command() -> Command {
                 .short('p')
                 .long("print-summary")
                 .help("Print summary information about the number of files gathered.")
-                .num_args(0)
-                .hide(false)
                 .action(ArgAction::SetTrue)
         )
         .arg( // Don't show detail information
@@ -87,8 +77,6 @@ fn build_command() -> Command {
                 .short('o')
                 .long("detail-off")
                 .help("Don't print detailed information about each file processed.")
-                .num_args(0)
-                .hide(false)
                 .action(ArgAction::SetTrue)
         )
 }

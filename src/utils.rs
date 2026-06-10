@@ -11,19 +11,11 @@ use log::LevelFilter;
 ///
 /// - `Result<(), Box<dyn std::error::Error>>` - returns an empty `Ok()` if it is a directory, or an error if not.
 pub fn check_directory(target: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let td_metadata = std::fs::metadata(target);
-    match td_metadata {
-        Ok(td_md) => {
-            if !td_md.is_dir() {
-                return Err("Specified target is not a directory. Unable to proceed.".into());
-            }
-            log::debug!("Specified target is a directory. Procceeding.");
-        }
-        Err(err) => {
-            let error_message = format!("Target: {err}");
-            return Err(error_message.into());
-        }
+    let metadata = std::fs::metadata(target).map_err(|e| format!("Target: {e}"))?;
+    if !metadata.is_dir() {
+        return Err("Specified target is not a directory. Unable to proceed.".into());
     }
+    log::debug!("Specified target is a directory. Proceeding.");
 
     Ok(())
 }
