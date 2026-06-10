@@ -1,6 +1,18 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [unreleased]
+
+### Fix
+
+- Various code fixes
+
+## [0.2.6] - 2026-06-09
+
+### Bug Fixes
+
+- CLI flags use get_flag
+
 ## [0.2.5] - 2026-06-09
 
 ### Bug Fixes

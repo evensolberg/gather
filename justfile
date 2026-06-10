@@ -60,17 +60,11 @@ alias r := release
 
 # Documents the project, builds and installs the release version, and cleans up
 @release: format changelog
-    cargo lbuild --release  --color 'always'
-    cargo strip
-    cp {{invocation_directory()}}/target/release/{{application}} /usr/local/bin/
-    cargo clean
+    cargo install --path .
 
 # Documents the project, builds and installs the release version, and cleans up
 @releasea: format changelog
-    cargo lbuild --release  --color 'always' --target aarch64-apple-darwin
-    cargo strip --target aarch64-apple-darwin
-    cp {{invocation_directory()}}/target/aarch64-apple-darwin/release/{{application}} /usr/local/bin/
-    cargo clean
+    cargo install --path . --target aarch64-apple-darwin
 
 # Build the documentation
 @doc:
