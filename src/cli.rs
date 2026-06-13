@@ -121,7 +121,7 @@ mod tests {
 
     #[test]
     fn footgun_is_gone_bare_path_treated_as_source() {
-        // Without -t/-target, a trailing path like /dest is consumed by the
+        // Without -t/--target, a trailing path like /dest is consumed by the
         // greedy `read` arg — not silently adopted as the target directory.
         let matches = build_command()
             .try_get_matches_from(["gather", "file.txt", "/dest"])

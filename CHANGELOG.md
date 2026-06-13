@@ -1,6 +1,8 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [unreleased]
+
 ## [0.3.0] - 2026-06-12
 
 ### Breaking Changes
@@ -16,14 +18,6 @@ All notable changes to this project will be documented in this file.
   `--`) silently gathered into CWD instead of `/dest`
 - Fix panic on every invocation: `get_flag("no-summary")` referenced a
   non-existent arg ID; corrected to `get_flag("summary")`
-
-### Chore
-
-- Updated the justfile
-
-### Fix
-
-- Various code fixes
 
 ## [0.2.6] - 2026-06-09
 
