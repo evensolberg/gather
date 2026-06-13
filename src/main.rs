@@ -33,7 +33,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let stop_on_error = cli_args.get_flag("stop");
     let show_detail_info = !cli_args.get_flag("detail-off");
     let dry_run = cli_args.get_flag("dry-run");
-    let print_summary = !cli_args.get_flag("no-summary");
+    let print_summary = cli_args.get_flag("summary");
     log::debug!("move_files: {move_files}, stop_on_error: {stop_on_error}, show_detail_info: {show_detail_info}, dry_run: {dry_run}, print_summary: {print_summary}");
 
     if dry_run {
