@@ -194,3 +194,26 @@ fn quiet_and_dry_run_still_shows_preview() {
         "expected file preview '==>' when -n -q combined, got:\n{stdout}"
     );
 }
+
+/// `-q` combined with `--dry-run --move` must STILL show the `-->` move-preview
+/// on stdout.  Regression guard for the move arm of the dry-run block.
+#[test]
+fn quiet_and_dry_run_move_still_shows_preview() {
+    let (_guard, src, dst) = setup_tmp("dry_qm");
+    let stdout = run_gather(&[
+        "-n",
+        "-q",
+        "--move",
+        src.to_str().unwrap(),
+        "-t",
+        dst.to_str().unwrap(),
+    ]);
+    assert!(
+        stdout.contains("Starting dry-run."),
+        "expected dry-run banner when -n -q --move combined, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("-->"),
+        "expected move preview '-->' when -n -q --move combined, got:\n{stdout}"
+    );
+}
