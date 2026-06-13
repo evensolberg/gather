@@ -1,4 +1,5 @@
 # Changelog
+
 All notable changes to this project will be documented in this file.
 
 ## [unreleased]
@@ -13,9 +14,10 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
-- [**breaking**] Switch target to named `--target`/`-t` option, fixing
-  the silent-wrong-directory footgun where `gather *.pdf /dest` (without
-  `--`) silently gathered into CWD instead of `/dest`
+- [**breaking**] Switch target to named `--target`/`-t` option. Bare
+  trailing paths are no longer silently adopted as the destination;
+  they are consumed by the greedy `read` arg, making the ambiguity a
+  noisy error at copy time rather than a silent wrong-directory result.
 - Fix panic on every invocation: `get_flag("no-summary")` referenced a
   non-existent arg ID; corrected to `get_flag("summary")`
 
