@@ -1,7 +1,7 @@
 ---
 id: gtr-p5l
 title: Document or fix .last(true) + default_value('.') silent wrong-directory footgun
-status: in_progress
+status: closed
 type: bug
 priority: 2
 tags:
@@ -10,6 +10,7 @@ tags:
 - clap
 created: 2026-06-08
 updated: 2026-06-12
+closed_reason: 'Fixed in PR #74: switched target to named --target/-t option, eliminating the silent-wrong-directory footgun'
 phase: ''
 ---
 
@@ -32,3 +33,5 @@ before, omitting the target produced a clap required-arg error; now it
 silently defaults to '.'.
 
 [start] 2026-06-12 21:00:45
+
+[stop]  2026-06-12 21:30:14  29m 29s  Fixed in PR #74
