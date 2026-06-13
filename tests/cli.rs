@@ -19,20 +19,45 @@ impl Drop for TempGuard {
     }
 }
 
-/// Creates a unique temp directory scoped to the calling thread, writes a
-/// single `sample.txt` source file, and prepares a `dst/` sub-directory.
+/// Creates a unique temp directory for this test run, writes a single
+/// `sample.txt` source file, and prepares a `dst/` sub-directory.
 ///
-/// Returns `(guard, src_file, dst_dir)`.  The directory is removed
+/// The directory name includes both the PID (cross-process uniqueness)
+/// and the thread ID (intra-process uniqueness when tests run in
+/// parallel on different threads), so concurrent `cargo test` invocations
+/// on the same machine cannot collide on the same path.
+///
+/// Returns `(guard, src_file, dst_dir)`. The directory is removed
 /// automatically when `guard` is dropped.
 fn setup_tmp(tag: &str) -> (TempGuard, PathBuf, PathBuf) {
-    // Thread ID makes the path unique even if tests run concurrently.
+    let pid = std::process::id();
     let tid = format!("{:?}", std::thread::current().id());
-    let root = std::env::temp_dir().join(format!("gather_test_{tag}_{tid}"));
+    let root = std::env::temp_dir().join(format!("gather_test_{tag}_{pid}_{tid}"));
     let dst = root.join("dst");
     fs::create_dir_all(&dst).expect("create dst dir");
     let src = root.join("sample.txt");
     fs::write(&src, b"hello").expect("write sample file");
     (TempGuard(root), src, dst)
+}
+
+/// Runs `gather` with the given extra args, asserting that it exits 0.
+/// Returns the decoded stdout content.
+///
+/// The `assert!(status.success())` check is centralised here so all tests
+/// get consistent failure messages that include stderr, preventing drift
+/// between test bodies.
+fn run_gather(args: &[&str]) -> String {
+    let output = Command::new(GATHER)
+        .args(args)
+        .output()
+        .expect("failed to run gather");
+    assert!(
+        output.status.success(),
+        "expected exit 0, got {:?}\nstderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
 // -------------------------------------------------------------------
@@ -45,26 +70,7 @@ fn setup_tmp(tag: &str) -> (TempGuard, PathBuf, PathBuf) {
 #[test]
 fn quiet_and_print_summary_both_show_summary() {
     let (_guard, src, dst) = setup_tmp("qp");
-
-    let output = Command::new(GATHER)
-        .args([
-            "-q",
-            "-p",
-            src.to_str().unwrap(),
-            "-t",
-            dst.to_str().unwrap(),
-        ])
-        .output()
-        .expect("failed to run gather");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    assert!(
-        output.status.success(),
-        "expected exit 0, got {:?}\nstderr: {}",
-        output.status,
-        String::from_utf8_lossy(&output.stderr)
-    );
+    let stdout = run_gather(&["-q", "-p", src.to_str().unwrap(), "-t", dst.to_str().unwrap()]);
     assert!(
         stdout.contains("Total files examined:"),
         "expected summary in stdout when -q -p combined, got:\n{stdout}"
@@ -75,19 +81,7 @@ fn quiet_and_print_summary_both_show_summary() {
 #[test]
 fn print_summary_without_quiet_shows_summary() {
     let (_guard, src, dst) = setup_tmp("p_only");
-
-    let output = Command::new(GATHER)
-        .args(["-p", src.to_str().unwrap(), "-t", dst.to_str().unwrap()])
-        .output()
-        .expect("failed to run gather");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    assert!(
-        output.status.success(),
-        "expected exit 0, got {:?}",
-        output.status
-    );
+    let stdout = run_gather(&["-p", src.to_str().unwrap(), "-t", dst.to_str().unwrap()]);
     assert!(
         stdout.contains("Total files examined:"),
         "expected summary in stdout for -p alone, got:\n{stdout}"
@@ -98,19 +92,7 @@ fn print_summary_without_quiet_shows_summary() {
 #[test]
 fn quiet_without_print_summary_suppresses_output() {
     let (_guard, src, dst) = setup_tmp("q_only");
-
-    let output = Command::new(GATHER)
-        .args(["-q", src.to_str().unwrap(), "-t", dst.to_str().unwrap()])
-        .output()
-        .expect("failed to run gather");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    assert!(
-        output.status.success(),
-        "expected exit 0, got {:?}",
-        output.status
-    );
+    let stdout = run_gather(&["-q", src.to_str().unwrap(), "-t", dst.to_str().unwrap()]);
     assert!(
         !stdout.contains("Total files examined:"),
         "summary must not appear in stdout when only -q is given, got:\n{stdout}"
@@ -122,25 +104,7 @@ fn quiet_without_print_summary_suppresses_output() {
 #[test]
 fn dry_run_with_print_summary_shows_summary() {
     let (_guard, src, dst) = setup_tmp("dry_p");
-
-    let output = Command::new(GATHER)
-        .args([
-            "-n",
-            "-p",
-            src.to_str().unwrap(),
-            "-t",
-            dst.to_str().unwrap(),
-        ])
-        .output()
-        .expect("failed to run gather");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    assert!(
-        output.status.success(),
-        "expected exit 0, got {:?}",
-        output.status
-    );
+    let stdout = run_gather(&["-n", "-p", src.to_str().unwrap(), "-t", dst.to_str().unwrap()]);
     assert!(
         stdout.contains("Total files examined:"),
         "expected summary in stdout for -n -p combined, got:\n{stdout}"
