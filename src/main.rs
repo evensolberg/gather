@@ -23,9 +23,9 @@ fn run() -> Result<(), Box<dyn Error>> {
     log::debug!("files_to_gather: {sources:?}");
 
     // Verify that the target exists and that it is a directory
-    let target_dir = cli_args
-        .get_one::<String>("target")
-        .expect("default_value('.') guarantees target is always present — this is a clap bug if None");
+    let target_dir = cli_args.get_one::<String>("target").expect(
+        "default_value('.') guarantees target is always present — this is a clap bug if None",
+    );
     log::trace!("target_dir: {target_dir:?}");
     utils::check_directory(target_dir)?;
 
@@ -37,7 +37,9 @@ fn run() -> Result<(), Box<dyn Error>> {
     log::debug!("move_files: {move_files}, stop_on_error: {stop_on_error}, show_detail_info: {show_detail_info}, dry_run: {dry_run}, print_summary: {print_summary}");
 
     if dry_run {
-        log::info!("Starting dry-run.");
+        // Write directly to stdout so the banner is never silenced by -q/--quiet.
+        // The quiet flag sets LevelFilter::Error; log::info! would be filtered out.
+        println!("Starting dry-run.");
     }
 
     let mut total_file_count: usize = 0;
@@ -62,10 +64,12 @@ fn run() -> Result<(), Box<dyn Error>> {
         let target = new_filename.display();
 
         if dry_run {
+            // Write directly to stdout so previews are never silenced by -q/--quiet.
+            // Same reasoning as the banner above and the print_summary block below.
             if move_files {
-                log::info!("  {source} --> {target}");
+                println!("  {source} --> {target}");
             } else {
-                log::info!("  {source} ==> {target}");
+                println!("  {source} ==> {target}");
             }
             processed_file_count += 1;
         } else if move_files {

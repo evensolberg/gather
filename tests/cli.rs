@@ -72,7 +72,13 @@ fn run_gather(args: &[&str]) -> String {
 #[test]
 fn quiet_and_print_summary_both_show_summary() {
     let (_guard, src, dst) = setup_tmp("qp");
-    let stdout = run_gather(&["-q", "-p", src.to_str().unwrap(), "-t", dst.to_str().unwrap()]);
+    let stdout = run_gather(&[
+        "-q",
+        "-p",
+        src.to_str().unwrap(),
+        "-t",
+        dst.to_str().unwrap(),
+    ]);
     assert!(
         stdout.contains("Total files examined:"),
         "expected summary in stdout when -q -p combined, got:\n{stdout}"
@@ -106,9 +112,85 @@ fn quiet_without_print_summary_suppresses_output() {
 #[test]
 fn dry_run_with_print_summary_shows_summary() {
     let (_guard, src, dst) = setup_tmp("dry_p");
-    let stdout = run_gather(&["-n", "-p", src.to_str().unwrap(), "-t", dst.to_str().unwrap()]);
+    let stdout = run_gather(&[
+        "-n",
+        "-p",
+        src.to_str().unwrap(),
+        "-t",
+        dst.to_str().unwrap(),
+    ]);
     assert!(
         stdout.contains("Total files examined:"),
         "expected summary in stdout for -n -p combined, got:\n{stdout}"
+    );
+}
+
+// -------------------------------------------------------------------
+// Bug: gtr-bdh — dry-run output silenced by -q (same root cause as gtr-b6p)
+// -------------------------------------------------------------------
+
+/// `--dry-run` alone must print the "Starting dry-run." banner on stdout.
+/// Regression guard: verifies the baseline before the -q interaction test.
+#[test]
+fn dry_run_shows_banner() {
+    let (_guard, src, dst) = setup_tmp("dry_banner");
+    let stdout = run_gather(&["-n", src.to_str().unwrap(), "-t", dst.to_str().unwrap()]);
+    assert!(
+        stdout.contains("Starting dry-run."),
+        "expected dry-run banner in stdout for -n, got:\n{stdout}"
+    );
+}
+
+/// `--dry-run` alone must show per-file copy-preview lines on stdout.
+/// Regression guard: verifies the baseline before the -q interaction test.
+#[test]
+fn dry_run_shows_file_preview() {
+    let (_guard, src, dst) = setup_tmp("dry_file");
+    let stdout = run_gather(&["-n", src.to_str().unwrap(), "-t", dst.to_str().unwrap()]);
+    assert!(
+        stdout.contains("==>"),
+        "expected copy-preview '==>' in stdout for -n, got:\n{stdout}"
+    );
+}
+
+/// `--dry-run --move` must show the move-preview `-->` arrow on stdout.
+/// Regression guard for the move path.
+#[test]
+fn dry_run_move_shows_move_preview() {
+    let (_guard, src, dst) = setup_tmp("dry_move");
+    let stdout = run_gather(&[
+        "-n",
+        "--move",
+        src.to_str().unwrap(),
+        "-t",
+        dst.to_str().unwrap(),
+    ]);
+    assert!(
+        stdout.contains("-->"),
+        "expected move-preview '-->' in stdout for -n --move, got:\n{stdout}"
+    );
+}
+
+/// `-q` combined with `--dry-run` must STILL show the dry-run banner and
+/// per-file preview on stdout.  Before the fix the `log::info!` calls in the
+/// dry-run paths are silenced by `LevelFilter::Error`, producing zero output
+/// and making `-n -q` completely useless.
+#[test]
+fn quiet_and_dry_run_still_shows_preview() {
+    let (_guard, src, dst) = setup_tmp("dry_q");
+    let stdout = run_gather(&[
+        "-n",
+        "-q",
+        src.to_str().unwrap(),
+        "-t",
+        dst.to_str().unwrap(),
+    ]);
+    assert!(
+        stdout.contains("Starting dry-run."),
+        "expected dry-run banner when -n -q combined, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("==>"),
+        "expected file preview '==>' when -n -q combined, got:\n{stdout}"
     );
 }
