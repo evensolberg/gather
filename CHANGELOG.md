@@ -1,23 +1,25 @@
 # Changelog
-
 All notable changes to this project will be documented in this file.
 
-## [0.3.0] - 2026-06-12
-
-### Breaking Changes
-
-- **`<TARGET>` positional argument removed.** Use `-t`/`--target` named
-  option instead: `gather *.pdf -- /dest` → `gather -t /dest *.pdf`.
-  Omitting `-t` still defaults to the current directory (`.`).
+## [unreleased]
 
 ### Bug Fixes
 
-- [**breaking**] Switch target to named `--target`/`-t` option. Bare
-  trailing paths are no longer silently adopted as the destination;
-  they are consumed by the greedy `read` arg, making the ambiguity a
-  noisy error at copy time rather than a silent wrong-directory result.
-- Fix panic on every invocation: `get_flag("no-summary")` referenced a
-  non-existent arg ID; corrected to `get_flag("summary")`
+- Switch target to named --target/-t option (0.3.0) (#74)
+- -q no longer silences -p/--print-summary output (#75)
+- -q no longer silences -n/--dry-run banner and file previews (#77)
+
+### Chore
+
+- Updated the justfile
+
+### Fix
+
+- Various code fixes
+
+### Miscellaneous Tasks
+
+- Bump version to 0.3.1 (#76)
 
 ## [0.2.6] - 2026-06-09
 
