@@ -1,7 +1,7 @@
 ---
 id: gtr-p5l
 title: Document or fix .last(true) + default_value('.') silent wrong-directory footgun
-status: open
+status: in_progress
 type: bug
 priority: 2
 tags:
@@ -9,7 +9,7 @@ tags:
 - cli
 - clap
 created: 2026-06-08
-updated: 2026-06-08
+updated: 2026-06-12
 phase: ''
 ---
 
@@ -30,3 +30,5 @@ C) Reconsider .last(true) — switch target to a named option
 The PR that introduced default_value (gtr-9cf) made this more prominent:
 before, omitting the target produced a clap required-arg error; now it
 silently defaults to '.'.
+
+[start] 2026-06-12 21:00:45
