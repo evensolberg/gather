@@ -1,7 +1,25 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
-## [unreleased]
+## [0.3.0] - 2026-06-12
+
+### Breaking Changes
+
+- **`<TARGET>` positional argument removed.** Use `-t`/`--target` named
+  option instead: `gather *.pdf -- /dest` → `gather -t /dest *.pdf`.
+  Omitting `-t` still defaults to the current directory (`.`).
+
+### Bug Fixes
+
+- [**breaking**] Switch target to named `--target`/`-t` option, fixing
+  the silent-wrong-directory footgun where `gather *.pdf /dest` (without
+  `--`) silently gathered into CWD instead of `/dest`
+- Fix panic on every invocation: `get_flag("no-summary")` referenced a
+  non-existent arg ID; corrected to `get_flag("summary")`
+
+### Chore
+
+- Updated the justfile
 
 ### Fix
 
