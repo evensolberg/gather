@@ -27,7 +27,7 @@ pub fn log_build(cli_args: &clap::ArgMatches) -> Builder {
 
     // Figure out what log level to use.
     if cli_args.get_flag("quiet") {
-        logbuilder.filter_level(LevelFilter::Off);
+        logbuilder.filter_level(LevelFilter::Error);
     } else {
         match cli_args.get_count("debug") {
             0 => logbuilder.filter_level(LevelFilter::Info),
