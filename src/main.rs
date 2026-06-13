@@ -112,13 +112,16 @@ fn run() -> Result<(), Box<dyn Error>> {
     } // for filename
 
     if print_summary {
-        log::info!("Total files examined:        {total_file_count:5}");
+        // Write directly to stdout so the summary is never silenced by -q/--quiet.
+        // The quiet flag only lowers the log level to Error; if we used log::info!
+        // here it would be filtered out when the two flags are combined.
+        println!("Total files examined:        {total_file_count:5}");
         if move_files {
-            log::info!("Files moved:                 {processed_file_count:5}");
+            println!("Files moved:                 {processed_file_count:5}");
         } else {
-            log::info!("Files copied:                {processed_file_count:5}");
+            println!("Files copied:                {processed_file_count:5}");
         }
-        log::info!("Files skipped due to errors: {skipped_file_count:5}");
+        println!("Files skipped due to errors: {skipped_file_count:5}");
     }
 
     Ok(())
