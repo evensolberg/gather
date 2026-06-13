@@ -36,7 +36,10 @@ pub fn log_build(cli_args: &clap::ArgMatches) -> Builder {
         };
     }
 
-    // Initialize logging
+    // Route all log output to stdout so it shares the same fd as the
+    // println!-based summary output (see main.rs print_summary block).
+    // Both streams write to the same fd; the logger uses its own internal
+    // buffer while println! goes through Rust's LineWriter (line-flushed).
     logbuilder.target(Target::Stdout).init();
 
     // return the log builder

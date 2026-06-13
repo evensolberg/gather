@@ -22,17 +22,19 @@ impl Drop for TempGuard {
 /// Creates a unique temp directory for this test run, writes a single
 /// `sample.txt` source file, and prepares a `dst/` sub-directory.
 ///
-/// The directory name includes both the PID (cross-process uniqueness)
-/// and the thread ID (intra-process uniqueness when tests run in
-/// parallel on different threads), so concurrent `cargo test` invocations
-/// on the same machine cannot collide on the same path.
+/// The directory name includes the PID so concurrent `cargo test`
+/// invocations on the same machine (e.g. CI matrix retries) cannot
+/// collide on the same path. Within a single process the tag strings
+/// are already distinct.
 ///
 /// Returns `(guard, src_file, dst_dir)`. The directory is removed
 /// automatically when `guard` is dropped.
 fn setup_tmp(tag: &str) -> (TempGuard, PathBuf, PathBuf) {
+    // PID differentiates across concurrent cargo test invocations on the
+    // same machine. Within a single process, test tags ("qp", "p_only",
+    // "q_only", "dry_p") are already distinct.
     let pid = std::process::id();
-    let tid = format!("{:?}", std::thread::current().id());
-    let root = std::env::temp_dir().join(format!("gather_test_{tag}_{pid}_{tid}"));
+    let root = std::env::temp_dir().join(format!("gather_test_{tag}_{pid}"));
     let dst = root.join("dst");
     fs::create_dir_all(&dst).expect("create dst dir");
     let src = root.join("sample.txt");
@@ -94,8 +96,8 @@ fn quiet_without_print_summary_suppresses_output() {
     let (_guard, src, dst) = setup_tmp("q_only");
     let stdout = run_gather(&["-q", src.to_str().unwrap(), "-t", dst.to_str().unwrap()]);
     assert!(
-        !stdout.contains("Total files examined:"),
-        "summary must not appear in stdout when only -q is given, got:\n{stdout}"
+        stdout.is_empty(),
+        "stdout must be empty when only -q is given (no -p), got:\n{stdout}"
     );
 }
 
