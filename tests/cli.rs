@@ -141,33 +141,37 @@ fn dry_run_shows_banner() {
     );
 }
 
-/// `--dry-run` alone must show per-file copy-preview lines on stdout.
+/// `--dry-run` alone must show per-file copy-preview lines on stdout,
+/// including the actual source path.
 /// Regression guard: verifies the baseline before the -q interaction test.
 #[test]
 fn dry_run_shows_file_preview() {
     let (_guard, src, dst) = setup_tmp("dry_file");
-    let stdout = run_gather(&["-n", src.to_str().unwrap(), "-t", dst.to_str().unwrap()]);
+    let src_str = src.to_str().unwrap();
+    let stdout = run_gather(&["-n", src_str, "-t", dst.to_str().unwrap()]);
     assert!(
-        stdout.contains("==>"),
-        "expected copy-preview '==>' in stdout for -n, got:\n{stdout}"
+        stdout.contains("==>") && stdout.contains(src_str),
+        "expected copy-preview '==> {src_str}' in stdout for -n, got:\n{stdout}"
     );
 }
 
-/// `--dry-run --move` must show the move-preview `-->` arrow on stdout.
+/// `--dry-run --move` must show the move-preview `-->` arrow on stdout,
+/// including the actual source path.
 /// Regression guard for the move path.
 #[test]
 fn dry_run_move_shows_move_preview() {
     let (_guard, src, dst) = setup_tmp("dry_move");
+    let src_str = src.to_str().unwrap();
     let stdout = run_gather(&[
         "-n",
         "--move",
-        src.to_str().unwrap(),
+        src_str,
         "-t",
         dst.to_str().unwrap(),
     ]);
     assert!(
-        stdout.contains("-->"),
-        "expected move-preview '-->' in stdout for -n --move, got:\n{stdout}"
+        stdout.contains("-->") && stdout.contains(src_str),
+        "expected move-preview '{src_str} -->' in stdout for -n --move, got:\n{stdout}"
     );
 }
 
@@ -178,10 +182,11 @@ fn dry_run_move_shows_move_preview() {
 #[test]
 fn quiet_and_dry_run_still_shows_preview() {
     let (_guard, src, dst) = setup_tmp("dry_q");
+    let src_str = src.to_str().unwrap();
     let stdout = run_gather(&[
         "-n",
         "-q",
-        src.to_str().unwrap(),
+        src_str,
         "-t",
         dst.to_str().unwrap(),
     ]);
@@ -190,8 +195,8 @@ fn quiet_and_dry_run_still_shows_preview() {
         "expected dry-run banner when -n -q combined, got:\n{stdout}"
     );
     assert!(
-        stdout.contains("==>"),
-        "expected file preview '==>' when -n -q combined, got:\n{stdout}"
+        stdout.contains("==>") && stdout.contains(src_str),
+        "expected file preview '==> {src_str}' when -n -q combined, got:\n{stdout}"
     );
 }
 
@@ -200,11 +205,12 @@ fn quiet_and_dry_run_still_shows_preview() {
 #[test]
 fn quiet_and_dry_run_move_still_shows_preview() {
     let (_guard, src, dst) = setup_tmp("dry_qm");
+    let src_str = src.to_str().unwrap();
     let stdout = run_gather(&[
         "-n",
         "-q",
         "--move",
-        src.to_str().unwrap(),
+        src_str,
         "-t",
         dst.to_str().unwrap(),
     ]);
@@ -213,7 +219,7 @@ fn quiet_and_dry_run_move_still_shows_preview() {
         "expected dry-run banner when -n -q --move combined, got:\n{stdout}"
     );
     assert!(
-        stdout.contains("-->"),
-        "expected move preview '-->' when -n -q --move combined, got:\n{stdout}"
+        stdout.contains("-->") && stdout.contains(src_str),
+        "expected move preview '{src_str} -->' when -n -q --move combined, got:\n{stdout}"
     );
 }

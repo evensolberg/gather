@@ -63,7 +63,7 @@ fn build_command() -> Command {
             Arg::new("quiet")
                 .short('q')
                 .long("quiet")
-                .help("Don't produce any output except errors while working.")
+                .help("Suppress all output except errors. Dry-run previews (-n) and explicit summaries (-p) always appear regardless of this flag.")
                 .action(ArgAction::SetTrue)
         )
         .arg( // Print summary information
