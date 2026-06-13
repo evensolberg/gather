@@ -9,7 +9,7 @@ gtr-6ug,Modernize fn main() to return Result<()> and fix String::as_str path,ope
 gtr-9cf,Fix conflicting required(true) + manual default fallback for target arg,closed,,bug,1,bug|clap|cli,2026-06-08,2026-06-08,Implemented: clap default_value on target arg; dead fallback removed from main.rs; two unit tests added. PR on fix/gtr-9cf-target-default-value.,,,,,
 gtr-ar3,Add unit tests for check_directory and log_build,open,,task,1,testing|quality,2026-06-08,2026-06-08,,,,,,
 gtr-ar9,Extract --summary flag to local bool before the loop (inconsistent with other flags),closed,,task,3,code-quality|clap|idiomatic,2026-06-08,2026-06-09,Fixed,,,,,
-gtr-b6p,quiet mode silently defeats --print-summary/-p flag,open,,bug,3,ux|cli|logging,2026-06-12,2026-06-12,,,,,,
+gtr-b6p,quiet mode silently defeats --print-summary/-p flag,closed,,bug,3,ux|cli|logging,2026-06-12,2026-06-12,fixed in this PR — println! bypasses log filter; 4 integration tests added,,,,,
 gtr-bir,Fix typo in utils.rs: Procceeding should be Proceeding,closed,,bug,2,typo|polish,2026-06-08,2026-06-09,Fixed,,,,,
 gtr-du6,Remove empty [features] section from Cargo.toml,closed,,task,4,cleanup|cargo,2026-06-08,2026-06-09,Fixed,,,,,
 gtr-jz8,Replace Box<dyn Error> with anyhow::Error for richer error context,open,,feature,2,error-handling|anyhow|code-quality,2026-06-08,2026-06-08,,,,,,
