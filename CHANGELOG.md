@@ -1,11 +1,23 @@
 # Changelog
+
 All notable changes to this project will be documented in this file.
 
-## [unreleased]
+## [0.3.0] - 2026-06-12
 
-### Fix
+### Breaking Changes
 
-- Various code fixes
+- **`<TARGET>` positional argument removed.** Use `-t`/`--target` named
+  option instead: `gather *.pdf -- /dest` → `gather -t /dest *.pdf`.
+  Omitting `-t` still defaults to the current directory (`.`).
+
+### Bug Fixes
+
+- [**breaking**] Switch target to named `--target`/`-t` option. Bare
+  trailing paths are no longer silently adopted as the destination;
+  they are consumed by the greedy `read` arg, making the ambiguity a
+  noisy error at copy time rather than a silent wrong-directory result.
+- Fix panic on every invocation: `get_flag("no-summary")` referenced a
+  non-existent arg ID; corrected to `get_flag("summary")`
 
 ## [0.2.6] - 2026-06-09
 

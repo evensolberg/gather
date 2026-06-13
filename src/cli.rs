@@ -20,11 +20,12 @@ fn build_command() -> Command {
         )
         .arg(
             Arg::new("target")
+                .short('t')
+                .long("target")
                 .value_name("TARGET")
-                .help("The target directory into which files are to be gathered.")
+                .help("The target directory into which files are to be gathered. Defaults to the current directory.")
                 .num_args(1)
                 .default_value(".")
-                .last(true)
                 .action(ArgAction::Set)
         )
         .arg( // Move rather than copy files
@@ -98,13 +99,46 @@ mod tests {
 
     #[test]
     fn target_uses_provided_directory() {
-        // .last(true) means the target must appear after the -- separator
         let matches = build_command()
-            .try_get_matches_from(["gather", "file.txt", "--", "/tmp/out"])
-            .expect("parsing should succeed with an explicit target after --");
+            .try_get_matches_from(["gather", "file.txt", "--target", "/tmp/out"])
+            .expect("parsing should succeed with an explicit target via --target");
         assert_eq!(
             matches.get_one::<String>("target").map(String::as_str),
             Some("/tmp/out")
+        );
+    }
+
+    #[test]
+    fn short_flag_sets_target() {
+        let matches = build_command()
+            .try_get_matches_from(["gather", "-t", "/tmp/out", "file.txt"])
+            .expect("parsing should succeed with -t flag");
+        assert_eq!(
+            matches.get_one::<String>("target").map(String::as_str),
+            Some("/tmp/out")
+        );
+    }
+
+    #[test]
+    fn bare_path_without_target_flag_goes_to_read_arg() {
+        // Without -t/--target, a trailing path like /dest is consumed by the
+        // greedy `read` arg — not silently adopted as the target directory.
+        let matches = build_command()
+            .try_get_matches_from(["gather", "file.txt", "/dest"])
+            .expect("parsing should succeed — /dest goes to read, not target");
+        let read_values: Vec<&str> = matches
+            .get_many::<String>("read")
+            .unwrap()
+            .map(String::as_str)
+            .collect();
+        assert!(
+            read_values.contains(&"/dest"),
+            "expected /dest in read args, got {read_values:?}"
+        );
+        assert_eq!(
+            matches.get_one::<String>("target").map(String::as_str),
+            Some("."),
+            "target should be the default '.' when -t is omitted"
         );
     }
 }

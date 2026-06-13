@@ -4,11 +4,11 @@ Gathers files from directories and subdirectories into a target directory.
 
 ## Usage
 
-`gather [FLAGS] <FILE(S)>... [--] <TARGET>`
+`gather [FLAGS] [-t <TARGET>] <FILE(S)>...`
 
 Example:
 
-`gather -m -p **/*.png **/*.jpg -- ../images/`
+`gather -m -p -t ../images/ **/*.png **/*.jpg`
 
 ### Flags
 
@@ -17,11 +17,12 @@ Example:
 |`-d`|`--debug`|Output debug information as we go. Supply it twice for trace-level logs.|
 |`-h`|`--help`|Prints help information.|
 |`-m`|`--move`|Move files instead of copying them.|
+|`-n`|`--dry-run`|Iterate through the files and produce output without actually processing anything.|
 |`-o`|`--detail-off`|Don't print detailed information about each file processed.|
 |`-p`|`--print-summary`|Print summary information about the number of files gathered.|
 |`-q`|`--quiet`|Don't produce any output except errors while working.|
-|`-n`|`--dry-run`|Iterate through the files and produce output without actually processing anything.|
 |`-s`|`--stop-on-error`|Stop on error. If this flag isn't set, the application will attempt to continue in case of error.|
+|`-t`|`--target`|The target directory into which files are to be gathered. Defaults to the current directory.|
 |`-V`|`--version`|Prints version information|
 
 ### Arguments
@@ -29,7 +30,6 @@ Example:
 |Argument|Description|
 |:-------|:----------|
 |`<FILE(S)>...`|One or more file(s) to process. Wildcards and multiple files (e.g. `2019*.pdf 2020*.pdf`) are supported. Use `**` glob to recurse (i.e. `**/*.pdf`).<br>**Note: Case sensitive.**|
-|`<TARGET>`|The target directory into which files are to be gathered.|
 
 ## Notes
 
