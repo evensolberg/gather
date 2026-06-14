@@ -83,7 +83,6 @@ mod tests {
                 clap::Arg::new("debug")
                     .short('d')
                     .long("debug")
-                    .env("GATHER_DEBUG")
                     .action(clap::ArgAction::Count),
             )
             .try_get_matches_from(argv)
@@ -114,7 +113,13 @@ mod tests {
 
     #[test]
     fn check_directory_rejects_nonexistent_path() {
-        let result = check_directory("/this/path/does/not/exist/anywhere/gather-test");
+        // Create a tempdir, record a path inside it, then drop the dir so the
+        // path is guaranteed absent — avoids relying on a hard-coded path that
+        // could exist on some CI systems.
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let absent = dir.path().join("does-not-exist").to_str().unwrap().to_string();
+        drop(dir); // dir is deleted here; `absent` is now guaranteed missing
+        let result = check_directory(&absent);
         assert!(result.is_err(), "expected Err for a nonexistent path");
     }
 
@@ -130,9 +135,7 @@ mod tests {
 
     #[test]
     fn log_level_no_flags_returns_info() {
-        // Guard against GATHER_DEBUG being set in the caller's environment, which
         // would cause the env-bound debug arg to increment the count automatically.
-        unsafe { std::env::remove_var("GATHER_DEBUG") };
         let matches = make_matches(false, 0);
         assert_eq!(log_level(&matches), LevelFilter::Info);
     }
