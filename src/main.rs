@@ -38,7 +38,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     if dry_run {
         // Write directly to stdout so the banner is never silenced by -q/--quiet.
-        // The quiet flag sets LevelFilter::Error; log::info! would be filtered out.
+        // The quiet flag sets LevelFilter::Off; even log::error! is filtered out.
         println!("Starting dry-run.");
     }
 
@@ -117,8 +117,8 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     if print_summary {
         // Write directly to stdout so the summary is never silenced by -q/--quiet.
-        // The quiet flag only lowers the log level to Error; if we used log::info!
-        // here it would be filtered out when the two flags are combined.
+        // The quiet flag sets LevelFilter::Off; if we used log::info! or log::error!
+        // here they would be filtered out when the two flags are combined.
         println!("Total files examined:        {total_file_count:5}");
         if move_files {
             println!("Files moved:                 {processed_file_count:5}");
@@ -137,7 +137,9 @@ fn main() {
     std::process::exit(match run() {
         Ok(()) => 0, // everything is hunky dory - exit with code 0 (success)
         Err(err) => {
-            log::error!("{}", err.to_string().replace('\"', ""));
+            // Use eprintln! rather than log::error! so fatal errors are always
+            // visible even when -q/--quiet sets LevelFilter::Off.
+            eprintln!("{}", err.to_string().replace('\"', ""));
             1 // exit with a non-zero return code, indicating a problem
         }
     });

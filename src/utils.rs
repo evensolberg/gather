@@ -83,7 +83,7 @@ mod tests {
                 clap::Arg::new("debug")
                     .short('d')
                     .long("debug")
-                    .num_args(0)
+                    .env("GATHER_DEBUG")
                     .action(clap::ArgAction::Count),
             )
             .try_get_matches_from(argv)
@@ -130,6 +130,9 @@ mod tests {
 
     #[test]
     fn log_level_no_flags_returns_info() {
+        // Guard against GATHER_DEBUG being set in the caller's environment, which
+        // would cause the env-bound debug arg to increment the count automatically.
+        unsafe { std::env::remove_var("GATHER_DEBUG") };
         let matches = make_matches(false, 0);
         assert_eq!(log_level(&matches), LevelFilter::Info);
     }
@@ -143,6 +146,13 @@ mod tests {
     #[test]
     fn log_level_two_debug_flags_returns_trace() {
         let matches = make_matches(false, 2);
+        assert_eq!(log_level(&matches), LevelFilter::Trace);
+    }
+
+    #[test]
+    fn log_level_three_debug_flags_also_returns_trace() {
+        // Confirms the wildcard arm covers all values above 1, not just exactly 2.
+        let matches = make_matches(false, 3);
         assert_eq!(log_level(&matches), LevelFilter::Trace);
     }
 }
