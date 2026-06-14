@@ -1,14 +1,14 @@
 ---
 id: gtr-ar3
 title: Add unit tests for check_directory and log_build
-status: open
+status: in_progress
 type: task
 priority: 1
 tags:
 - testing
 - quality
 created: 2026-06-08
-updated: 2026-06-08
+updated: 2026-06-13
 phase: ''
 ---
 
@@ -21,3 +21,5 @@ Minimum coverage:
 - log_build: test that quiet produces LevelFilter::Off, debug=0 -> Info,
   debug=1 -> Debug, debug=2+ -> Trace.
 Use tempfile crate or std::env::temp_dir() for filesystem tests.
+
+[start] 2026-06-13 17:26:46
