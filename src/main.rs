@@ -137,8 +137,8 @@ fn main() {
     std::process::exit(match run() {
         Ok(()) => 0, // everything is hunky dory - exit with code 0 (success)
         Err(err) => {
-            // Use eprintln! rather than log::error! so fatal errors are always
-            // visible even when -q/--quiet sets LevelFilter::Off.
+            // Use eprintln! so fatal errors always appear on stderr, regardless
+            // of the logger's filter level (which -q/--quiet sets to Off).
             eprintln!("{}", err.to_string().replace('\"', ""));
             1 // exit with a non-zero return code, indicating a problem
         }
