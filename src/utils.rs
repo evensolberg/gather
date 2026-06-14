@@ -135,7 +135,6 @@ mod tests {
 
     #[test]
     fn log_level_no_flags_returns_info() {
-        // would cause the env-bound debug arg to increment the count automatically.
         let matches = make_matches(false, 0);
         assert_eq!(log_level(&matches), LevelFilter::Info);
     }
