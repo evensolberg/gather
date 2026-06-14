@@ -13,7 +13,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let cli_args = cli::build();
 
     // Set up logging
-    let _logbuilder = utils::log_build(&cli_args);
+    utils::log_build(&cli_args);
 
     // create a list of the files to gather
     let sources = cli_args
