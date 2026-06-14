@@ -20,7 +20,7 @@ Example:
 |`-n`|`--dry-run`|Iterate through the files and produce output without actually processing anything.|
 |`-o`|`--detail-off`|Don't print detailed information about each file processed.|
 |`-p`|`--print-summary`|Print summary information about the number of files gathered.|
-|`-q`|`--quiet`|Don't produce any output except errors while working.|
+|`-q`|`--quiet`|Suppress all log output while working. Fatal errors always appear on stderr.|
 |`-s`|`--stop-on-error`|Stop on error. If this flag isn't set, the application will attempt to continue in case of error.|
 |`-t`|`--target`|The target directory into which files are to be gathered. Defaults to the current directory.|
 |`-V`|`--version`|Prints version information|
