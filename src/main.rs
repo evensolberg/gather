@@ -60,7 +60,7 @@ fn run() -> anyhow::Result<()> {
     let mut skipped_file_count: usize = 0;
 
     // Gather files
-    for source in &sources {
+    for source in sources.iter().copied() {
         total_file_count += 1;
 
         // Paths ending in "/" or ".." have no filename component — treat like any other error.

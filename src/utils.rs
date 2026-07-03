@@ -104,14 +104,10 @@ pub fn validate_sources(sources: &[&str], opts: &ProcessOptions) -> anyhow::Resu
     // is inherent in any check-then-act design and is acceptable for the
     // single-user interactive use case this tool targets.
     if opts.stop_on_error && !opts.dry_run {
-        let list = missing
-            .iter()
-            .map(|p| format!("  {p}"))
-            .collect::<Vec<_>>()
-            .join("\n");
         anyhow::bail!(
-            "{} source file(s) not found:\n{list}\nHalting.",
-            missing.len()
+            "{} source file(s) not found:\n  {}\nHalting.",
+            missing.len(),
+            missing.join("\n  ")
         );
     }
 
@@ -140,9 +136,9 @@ pub fn process_file(
     };
 
     if opts.dry_run {
-        // Skip missing sources silently — validate_sources already warned about them
-        // before the loop started.  Printing an arrow here would give a false-safe
-        // picture: the real run would fail or skip the file, not copy it.
+        // Guard against missing sources: a file absent at dry-run time would not
+        // be copied in a real run either (TOCTOU notwithstanding).  Printing an
+        // arrow for a non-existent source would give a false-safe dry-run picture.
         if !std::path::Path::new(source).exists() {
             return Ok(false);
         }
