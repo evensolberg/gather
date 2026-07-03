@@ -433,3 +433,29 @@ fn preflight_multiple_missing_all_reported_with_stop_on_error() {
         "expected non-zero exit when sources are missing with --stop-on-error"
     );
 }
+
+/// `--dry-run` with a missing source file must print a "(not found)" notice on
+/// stdout so the user knows which files would be skipped — the summary alone
+/// ("Files skipped due to errors: 1") provides no filename.
+#[test]
+fn dry_run_missing_source_shows_not_found_notice() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let dst = tmp.path().join("dst");
+    fs::create_dir_all(&dst).expect("create dst dir");
+
+    let stdout = run_gather(&[
+        "--dry-run",
+        "gather_dryrun_absent_source_xyz.txt", // guaranteed absent
+        "-t",
+        dst.to_str().unwrap(),
+    ]);
+
+    assert!(
+        stdout.contains("gather_dryrun_absent_source_xyz.txt"),
+        "expected the missing filename to appear in dry-run stdout; got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("not found"),
+        "expected a 'not found' notice in dry-run stdout for a missing source; got:\n{stdout}"
+    );
+}
