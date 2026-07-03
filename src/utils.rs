@@ -74,7 +74,10 @@ mod tests {
         let file_path = dir.path().join("dummy.txt");
         std::fs::write(&file_path, b"data").expect("failed to write temp file");
         let result = check_directory(file_path.to_str().expect("non-UTF-8 temp path"));
-        assert!(result.is_err(), "expected Err for a file path, not a directory");
+        assert!(
+            result.is_err(),
+            "expected Err for a file path, not a directory"
+        );
     }
 
     #[test]
