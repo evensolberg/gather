@@ -453,15 +453,17 @@ mod tests {
             f1.to_str().expect("utf-8"),
             f2.to_str().expect("utf-8"),
         ];
+        // Use stop_on_error=true so the function actually performs the
+        // try_exists() scan rather than returning early at the guard.
         let opts = ProcessOptions {
             dry_run: false,
             move_files: false,
-            stop_on_error: false,
+            stop_on_error: true,
             show_detail_info: false,
         };
         assert!(
             validate_sources(&sources, &opts).is_ok(),
-            "all paths exist — should return Ok"
+            "all paths exist — should return Ok even with stop_on_error=true"
         );
     }
 

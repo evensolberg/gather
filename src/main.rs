@@ -52,7 +52,7 @@ fn run() -> anyhow::Result<()> {
 
     // Pre-flight existence check: only useful when the user asked for a hard stop
     // on errors and this is not a dry-run.  In soft-error mode or dry-run the
-    // function is a no-op, so skip the Path::exists() pass over every source.
+    // function is a no-op, so skip the Path::try_exists() pass over every source.
     if opts.stop_on_error && !opts.dry_run {
         utils::validate_sources(&sources, &opts)?;
     }
