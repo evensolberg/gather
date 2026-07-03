@@ -26,14 +26,23 @@ fn run() -> anyhow::Result<()> {
     log::trace!("target_dir: {target_dir:?}");
     utils::check_directory(target_dir)?;
 
-    let move_files = cli_args.get_flag("move");
-    let stop_on_error = cli_args.get_flag("stop");
-    let show_detail_info = !cli_args.get_flag("detail-off");
-    let dry_run = cli_args.get_flag("dry-run");
+    let opts = utils::ProcessOptions {
+        dry_run: cli_args.get_flag("dry-run"),
+        move_files: cli_args.get_flag("move"),
+        stop_on_error: cli_args.get_flag("stop"),
+        show_detail_info: !cli_args.get_flag("detail-off"),
+    };
     let print_summary = cli_args.get_flag("summary");
-    log::debug!("move_files: {move_files}, stop_on_error: {stop_on_error}, show_detail_info: {show_detail_info}, dry_run: {dry_run}, print_summary: {print_summary}");
+    log::debug!(
+        "move_files: {}, stop_on_error: {}, show_detail_info: {}, dry_run: {}, print_summary: {}",
+        opts.move_files,
+        opts.stop_on_error,
+        opts.show_detail_info,
+        opts.dry_run,
+        print_summary
+    );
 
-    if dry_run {
+    if opts.dry_run {
         // Write directly to stdout so the banner is never silenced by -q/--quiet.
         // The quiet flag sets LevelFilter::Off; even log::error! is filtered out.
         println!("Starting dry-run.");
@@ -49,7 +58,7 @@ fn run() -> anyhow::Result<()> {
 
         // Paths ending in "/" or ".." have no filename component — treat like any other error.
         let Some(file_name) = Path::new(source).file_name() else {
-            if stop_on_error {
+            if opts.stop_on_error {
                 anyhow::bail!("Error: Invalid filename in path: {source}. Halting.");
             }
             log::warn!("Invalid filename in path: {source}. Continuing.");
@@ -58,56 +67,11 @@ fn run() -> anyhow::Result<()> {
         };
 
         let new_filename = Path::new(target_dir).join(file_name);
-        let target = new_filename.display();
 
-        if dry_run {
-            // Write directly to stdout so previews are never silenced by -q/--quiet.
-            // Same reasoning as the banner above and the print_summary block below.
-            if move_files {
-                println!("  {source} --> {target}");
-            } else {
-                println!("  {source} ==> {target}");
-            }
-            processed_file_count += 1;
-        } else if move_files {
-            log::debug!("Moving {source} to {target}");
-            match std::fs::rename(source, &new_filename) {
-                Ok(()) => {
-                    if show_detail_info {
-                        log::info!("  {source} --> {target}");
-                    }
-                    processed_file_count += 1;
-                }
-                Err(err) => {
-                    if stop_on_error {
-                        anyhow::bail!(
-                            "Error: {err}. Unable to move {source} to {target}. Halting."
-                        );
-                    }
-                    log::warn!("Unable to move {source} to {target}. Continuing.");
-                    skipped_file_count += 1;
-                }
-            }
-        } else {
-            log::debug!("Copying {source} to {target}");
-            match std::fs::copy(source, &new_filename) {
-                Ok(_) => {
-                    if show_detail_info {
-                        log::info!("  {source} ==> {target}");
-                    }
-                    processed_file_count += 1;
-                }
-                Err(err) => {
-                    if stop_on_error {
-                        anyhow::bail!(
-                            "Error: {err}. Unable to copy {source} to {target}. Halting."
-                        );
-                    }
-                    log::warn!("Unable to copy {source} to {target}. Continuing.");
-                    skipped_file_count += 1;
-                }
-            }
-        } // if dry_run
+        match utils::process_file(source, &new_filename, &opts)? {
+            true => processed_file_count += 1,
+            false => skipped_file_count += 1,
+        }
     } // for source
 
     if print_summary {
@@ -115,7 +79,7 @@ fn run() -> anyhow::Result<()> {
         // The quiet flag sets LevelFilter::Off; if we used log::info! or log::error!
         // here they would be filtered out when the two flags are combined.
         println!("Total files examined:        {total_file_count:5}");
-        if move_files {
+        if opts.move_files {
             println!("Files moved:                 {processed_file_count:5}");
         } else {
             println!("Files copied:                {processed_file_count:5}");
