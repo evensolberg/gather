@@ -78,49 +78,37 @@ pub fn process_file(
     opts: &ProcessOptions,
 ) -> anyhow::Result<bool> {
     let target_display = target.display();
+    let (verb, past, arrow) = if opts.move_files {
+        ("Moving", "move", "-->")
+    } else {
+        ("Copying", "copy", "==>")
+    };
 
     if opts.dry_run {
-        if opts.move_files {
-            println!("  {source} --> {target_display}");
-        } else {
-            println!("  {source} ==> {target_display}");
-        }
+        println!("  {source} {arrow} {target_display}");
         return Ok(true);
     }
 
-    if opts.move_files {
-        log::debug!("Moving {source} to {target_display}");
-        match std::fs::rename(source, target) {
-            Ok(()) => {
-                if opts.show_detail_info {
-                    log::info!("  {source} --> {target_display}");
-                }
-                Ok(true)
-            }
-            Err(err) => {
-                if opts.stop_on_error {
-                    anyhow::bail!("{err}. Unable to move {source} to {target_display}. Halting.");
-                }
-                log::warn!("Unable to move {source} to {target_display}. Continuing.");
-                Ok(false)
-            }
-        }
+    log::debug!("{verb} {source} to {target_display}");
+    let result: Result<(), std::io::Error> = if opts.move_files {
+        std::fs::rename(source, target)
     } else {
-        log::debug!("Copying {source} to {target_display}");
-        match std::fs::copy(source, target) {
-            Ok(_) => {
-                if opts.show_detail_info {
-                    log::info!("  {source} ==> {target_display}");
-                }
-                Ok(true)
+        std::fs::copy(source, target).map(|_| ())
+    };
+
+    match result {
+        Ok(()) => {
+            if opts.show_detail_info {
+                log::info!("  {source} {arrow} {target_display}");
             }
-            Err(err) => {
-                if opts.stop_on_error {
-                    anyhow::bail!("{err}. Unable to copy {source} to {target_display}. Halting.");
-                }
-                log::warn!("Unable to copy {source} to {target_display}. Continuing.");
-                Ok(false)
+            Ok(true)
+        }
+        Err(err) => {
+            if opts.stop_on_error {
+                anyhow::bail!("{err}. Unable to {past} {source} to {target_display}. Halting.");
             }
+            log::warn!("Unable to {past} {source} to {target_display}. Continuing.");
+            Ok(false)
         }
     }
 }
