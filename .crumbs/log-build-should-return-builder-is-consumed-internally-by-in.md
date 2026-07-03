@@ -9,8 +9,6 @@ tags:
 - api-design
 created: 2026-06-08
 updated: 2026-07-02
-blocks:
-- gtr-3aa
 phase: ''
 ---
 
