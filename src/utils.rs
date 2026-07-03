@@ -16,7 +16,7 @@ pub fn check_directory(target: &str) -> anyhow::Result<()> {
     let metadata =
         std::fs::metadata(target).with_context(|| format!("Target directory '{target}'"))?;
     if !metadata.is_dir() {
-        anyhow::bail!("Specified target is not a directory. Unable to proceed.");
+        anyhow::bail!("Target '{target}' is not a directory. Unable to proceed.");
     }
     log::debug!("Specified target is a directory. Proceeding.");
 
@@ -55,6 +55,7 @@ pub fn log_build(cli_args: &clap::ArgMatches) {
 }
 
 /// Options that control per-file processing behaviour, collected from CLI flags.
+#[derive(Debug)]
 pub struct ProcessOptions {
     pub dry_run: bool,
     pub move_files: bool,
@@ -98,9 +99,7 @@ pub fn process_file(
             }
             Err(err) => {
                 if opts.stop_on_error {
-                    anyhow::bail!(
-                        "Error: {err}. Unable to move {source} to {target_display}. Halting."
-                    );
+                    anyhow::bail!("{err}. Unable to move {source} to {target_display}. Halting.");
                 }
                 log::warn!("Unable to move {source} to {target_display}. Continuing.");
                 Ok(false)
@@ -117,9 +116,7 @@ pub fn process_file(
             }
             Err(err) => {
                 if opts.stop_on_error {
-                    anyhow::bail!(
-                        "Error: {err}. Unable to copy {source} to {target_display}. Halting."
-                    );
+                    anyhow::bail!("{err}. Unable to copy {source} to {target_display}. Halting.");
                 }
                 log::warn!("Unable to copy {source} to {target_display}. Continuing.");
                 Ok(false)
@@ -215,7 +212,7 @@ mod tests {
             show_detail_info: false,
         };
         let result = process_file(src.to_str().expect("utf-8"), &tgt, &opts);
-        assert_eq!(result.unwrap(), true, "dry_run should return Ok(true)");
+        assert!(result.unwrap(), "dry_run should return Ok(true)");
         assert!(!tgt.exists(), "dry_run must not create the target file");
         assert!(src.exists(), "dry_run must not remove the source file");
     }
@@ -233,11 +230,7 @@ mod tests {
             show_detail_info: false,
         };
         let result = process_file(src.to_str().expect("utf-8"), &tgt, &opts);
-        assert_eq!(
-            result.unwrap(),
-            true,
-            "dry_run --move should return Ok(true)"
-        );
+        assert!(result.unwrap(), "dry_run --move should return Ok(true)");
         assert!(
             !tgt.exists(),
             "dry_run --move must not create the target file"
@@ -261,11 +254,7 @@ mod tests {
             show_detail_info: false,
         };
         let result = process_file(src.to_str().expect("utf-8"), &tgt, &opts);
-        assert_eq!(
-            result.unwrap(),
-            true,
-            "successful copy should return Ok(true)"
-        );
+        assert!(result.unwrap(), "successful copy should return Ok(true)");
         assert!(tgt.exists(), "copy must create the target file");
         assert!(src.exists(), "copy must not remove the source file");
     }
@@ -283,11 +272,7 @@ mod tests {
             show_detail_info: false,
         };
         let result = process_file(src.to_str().expect("utf-8"), &tgt, &opts);
-        assert_eq!(
-            result.unwrap(),
-            true,
-            "successful move should return Ok(true)"
-        );
+        assert!(result.unwrap(), "successful move should return Ok(true)");
         assert!(tgt.exists(), "move must create the target file");
         assert!(!src.exists(), "move must remove the source file");
     }
@@ -304,9 +289,8 @@ mod tests {
             show_detail_info: false,
         };
         let result = process_file(src.to_str().expect("utf-8"), &tgt, &opts);
-        assert_eq!(
-            result.unwrap(),
-            false,
+        assert!(
+            !result.unwrap(),
             "missing source + stop_on_error=false should return Ok(false)"
         );
     }
@@ -341,9 +325,8 @@ mod tests {
             show_detail_info: false,
         };
         let result = process_file(src.to_str().expect("utf-8"), &tgt, &opts);
-        assert_eq!(
-            result.unwrap(),
-            false,
+        assert!(
+            !result.unwrap(),
             "missing source (move) + stop_on_error=false should return Ok(false)"
         );
     }

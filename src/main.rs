@@ -34,11 +34,11 @@ fn run() -> anyhow::Result<()> {
     };
     let print_summary = cli_args.get_flag("summary");
     log::debug!(
-        "move_files: {}, stop_on_error: {}, show_detail_info: {}, dry_run: {}, print_summary: {}",
+        "dry_run: {}, move_files: {}, stop_on_error: {}, show_detail_info: {}, print_summary: {}",
+        opts.dry_run,
         opts.move_files,
         opts.stop_on_error,
         opts.show_detail_info,
-        opts.dry_run,
         print_summary
     );
 
@@ -59,7 +59,7 @@ fn run() -> anyhow::Result<()> {
         // Paths ending in "/" or ".." have no filename component — treat like any other error.
         let Some(file_name) = Path::new(source).file_name() else {
             if opts.stop_on_error {
-                anyhow::bail!("Error: Invalid filename in path: {source}. Halting.");
+                anyhow::bail!("Invalid filename in path: {source}. Halting.");
             }
             log::warn!("Invalid filename in path: {source}. Continuing.");
             skipped_file_count += 1;
@@ -68,9 +68,10 @@ fn run() -> anyhow::Result<()> {
 
         let new_filename = Path::new(target_dir).join(file_name);
 
-        match utils::process_file(source, &new_filename, &opts)? {
-            true => processed_file_count += 1,
-            false => skipped_file_count += 1,
+        if utils::process_file(source, &new_filename, &opts)? {
+            processed_file_count += 1;
+        } else {
+            skipped_file_count += 1;
         }
     } // for source
 
