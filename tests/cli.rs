@@ -336,21 +336,23 @@ fn move_error_message_contains_no_quotes() {
 // -------------------------------------------------------------------
 
 /// With `--stop-on-error`, a missing source file must cause exit 1 with an
-/// error message on stderr *before* any other file is processed.
+/// error message on stderr *before* any other file is processed.  The real
+/// file must NOT be copied — the pre-flight pass aborts before any I/O.
 #[test]
 fn preflight_missing_source_stop_on_error_exits_nonzero() {
     let tmp = tempfile::tempdir().expect("create temp dir");
     let dst = tmp.path().join("dst");
     fs::create_dir_all(&dst).expect("create dst dir");
 
-    // One real file + one absent file
+    // One real file + one absent file (tempdir-scoped to guarantee absence).
     let real = tmp.path().join("real.txt");
     fs::write(&real, b"data").expect("write real file");
+    let missing = tmp.path().join("missing.txt"); // intentionally never created
 
     let output = Command::new(GATHER)
         .arg("--stop-on-error")
         .arg(real.to_str().unwrap())
-        .arg("gather_test_preflight_nosuchfile.txt") // guaranteed absent
+        .arg(missing.to_str().unwrap())
         .arg("-t")
         .arg(&dst)
         .output()
@@ -366,6 +368,10 @@ fn preflight_missing_source_stop_on_error_exits_nonzero() {
         !stderr.is_empty(),
         "expected an error on stderr for missing source with --stop-on-error"
     );
+    assert!(
+        !dst.join("real.txt").exists(),
+        "real.txt must NOT be copied when pre-flight aborts before processing"
+    );
 }
 
 /// Without `--stop-on-error`, a missing source file should produce a warning
@@ -378,10 +384,11 @@ fn preflight_missing_source_without_stop_on_error_continues() {
 
     let real = tmp.path().join("real.txt");
     fs::write(&real, b"data").expect("write real file");
+    let missing = tmp.path().join("missing.txt"); // intentionally never created
 
     let output = Command::new(GATHER)
         .arg(real.to_str().unwrap())
-        .arg("gather_test_preflight_nosuchfile.txt")
+        .arg(missing.to_str().unwrap())
         .arg("-t")
         .arg(&dst)
         .output()
@@ -408,23 +415,27 @@ fn preflight_multiple_missing_all_reported_with_stop_on_error() {
     let dst = tmp.path().join("dst");
     fs::create_dir_all(&dst).expect("create dst dir");
 
+    // Tempdir-scoped paths guarantee absence without relying on the working directory.
+    let missing_a = tmp.path().join("absent_alpha.txt"); // intentionally never created
+    let missing_b = tmp.path().join("absent_beta.txt"); // intentionally never created
+
     let output = Command::new(GATHER)
         .arg("--stop-on-error")
-        .arg("gather_preflight_absent_alpha.txt")
-        .arg("gather_preflight_absent_beta.txt")
+        .arg(missing_a.to_str().unwrap())
+        .arg(missing_b.to_str().unwrap())
         .arg("-t")
         .arg(&dst)
         .output()
         .expect("failed to run gather");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    // Both missing filenames must appear somewhere in stderr output
+    // Both missing absolute paths must appear somewhere in stderr output.
     assert!(
-        stderr.contains("gather_preflight_absent_alpha.txt"),
+        stderr.contains(missing_a.to_str().unwrap()),
         "stderr must mention the first missing file; got:\n{stderr}"
     );
     assert!(
-        stderr.contains("gather_preflight_absent_beta.txt"),
+        stderr.contains(missing_b.to_str().unwrap()),
         "stderr must mention the second missing file; got:\n{stderr}"
     );
     assert_ne!(
@@ -443,16 +454,15 @@ fn dry_run_missing_source_shows_not_found_notice() {
     let dst = tmp.path().join("dst");
     fs::create_dir_all(&dst).expect("create dst dir");
 
-    let stdout = run_gather(&[
-        "--dry-run",
-        "gather_dryrun_absent_source_xyz.txt", // guaranteed absent
-        "-t",
-        dst.to_str().unwrap(),
-    ]);
+    // Tempdir-scoped path guarantees absence without relying on the working directory.
+    let missing = tmp.path().join("absent_source.txt"); // intentionally never created
+    let missing_str = missing.to_str().unwrap();
+
+    let stdout = run_gather(&["--dry-run", missing_str, "-t", dst.to_str().unwrap()]);
 
     assert!(
-        stdout.contains("gather_dryrun_absent_source_xyz.txt"),
-        "expected the missing filename to appear in dry-run stdout; got:\n{stdout}"
+        stdout.contains(missing_str),
+        "expected the missing absolute path to appear in dry-run stdout; got:\n{stdout}"
     );
     assert!(
         stdout.contains("not found"),

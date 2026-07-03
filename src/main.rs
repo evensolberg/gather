@@ -50,10 +50,12 @@ fn run() -> anyhow::Result<()> {
         println!("Starting dry-run.");
     }
 
-    // Pre-flight: check all source paths exist before doing any file operations.
-    // Reports every missing path upfront so the user sees the full error picture
-    // before any files are moved or copied.
-    utils::validate_sources(&sources, &opts)?;
+    // Pre-flight existence check: only useful when the user asked for a hard stop
+    // on errors and this is not a dry-run.  In soft-error mode or dry-run the
+    // function is a no-op, so skip the Path::exists() pass over every source.
+    if opts.stop_on_error && !opts.dry_run {
+        utils::validate_sources(&sources, &opts)?;
+    }
 
     let mut total_file_count: usize = 0;
     let mut processed_file_count: usize = 0;

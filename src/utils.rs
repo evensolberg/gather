@@ -68,13 +68,9 @@ pub struct ProcessOptions {
 /// Iterates over `sources` and collects every path that does not exist on disk.
 /// When `stop_on_error` is `true` and `dry_run` is `false`, returns an error
 /// listing all missing paths so the user sees the complete picture in one
-/// message before any files are moved or copied.  Otherwise returns `Ok(())`
-/// and missing files are reported individually as they are encountered in the
-/// processing loop.
-///
-/// When `stop_on_error` is `true` **and** `dry_run` is `false`, the function
-/// returns an error after reporting every missing path.  Dry-run is
-/// non-destructive, so it always warn-and-continues regardless of `stop_on_error`.
+/// message before any files are moved or copied.  In all other cases the
+/// function returns `Ok(())` without emitting any output; per-file feedback for
+/// missing sources is handled by `process_file` when the copy or move fails.
 ///
 /// # Returns
 ///
@@ -495,7 +491,7 @@ mod tests {
         };
         assert!(
             validate_sources(&sources, &opts).is_ok(),
-            "missing path + stop_on_error=false should return Ok (warn-and-continue)"
+            "missing path + stop_on_error=false should return Ok (per-file handling deferred to process_file)"
         );
     }
 
@@ -518,8 +514,8 @@ mod tests {
         );
         let msg = format!("{}", result.unwrap_err());
         assert!(
-            msg.contains('2'),
-            "error message should report the count (2); got: {msg}"
+            msg.contains("2 source file(s) not found"),
+            "error message should contain '2 source file(s) not found'; got: {msg}"
         );
     }
 
