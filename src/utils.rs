@@ -38,16 +38,17 @@ fn log_level(quiet: bool, debug_count: u8) -> LevelFilter {
 
 /// Build a logging configuration based on CLI input.
 pub fn log_build(cli_args: &clap::ArgMatches) {
-    let mut logbuilder = Builder::new();
-    logbuilder.filter_level(log_level(
-        cli_args.get_flag("quiet"),
-        cli_args.get_count("debug"),
-    ));
     // Route all log output to stdout so it shares the same fd as the
     // println!-based summary output (see main.rs print_summary block).
     // Both streams write to the same fd; the logger uses its own internal
     // buffer while println! goes through Rust's LineWriter (line-flushed).
-    logbuilder.target(Target::Stdout).init();
+    Builder::new()
+        .filter_level(log_level(
+            cli_args.get_flag("quiet"),
+            cli_args.get_count("debug"),
+        ))
+        .target(Target::Stdout)
+        .init();
 }
 
 #[cfg(test)]
