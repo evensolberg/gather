@@ -1,14 +1,19 @@
 ---
 id: gtr-4h2
 title: Remove .replace('\"', "") workaround from error formatting in main()
-status: open
+status: blocked
 type: task
 priority: 2
 tags:
 - code-quality
 - error-handling
 created: 2026-06-08
-updated: 2026-06-08
+updated: 2026-07-02
+blocks:
+- gtr-3dm
+blocked_by:
+- gtr-6ug
+- gtr-bmr
 phase: ''
 ---
 

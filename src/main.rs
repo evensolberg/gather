@@ -19,7 +19,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let sources = cli_args
         .get_many::<String>("read")
         .unwrap_or_default()
-        .map(std::string::String::as_str);
+        .map(String::as_str);
     log::debug!("files_to_gather: {sources:?}");
 
     // Verify that the target exists and that it is a directory
@@ -132,15 +132,18 @@ fn run() -> Result<(), Box<dyn Error>> {
 } // fn run()
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/// The actual executable function that gets called when the program in invoked.
-fn main() {
-    std::process::exit(match run() {
-        Ok(()) => 0, // everything is hunky dory - exit with code 0 (success)
+/// The actual executable function that gets called when the program is invoked.
+fn main() -> std::process::ExitCode {
+    match run() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
         Err(err) => {
-            // Use eprintln! so fatal errors always appear on stderr, regardless
-            // of the logger's filter level (which -q/--quiet sets to Off).
-            eprintln!("{}", err.to_string().replace('\"', ""));
-            1 // exit with a non-zero return code, indicating a problem
+            // Use eprintln! so fatal errors always appear on stderr regardless of
+            // the logger's filter level (which -q/--quiet sets to LevelFilter::Off).
+            // {err} uses Display — no spurious quote characters around the message.
+            // Returning ExitCode::FAILURE (rather than calling process::exit) lets
+            // destructors and buffered log flushes run on the error path too.
+            eprintln!("{err}");
+            std::process::ExitCode::FAILURE
         }
-    });
+    }
 }

@@ -1,14 +1,18 @@
 ---
 id: gtr-3dm
 title: log_build() should return () — Builder is consumed internally by .init()
-status: open
+status: blocked
 type: task
 priority: 2
 tags:
 - code-quality
 - api-design
 created: 2026-06-08
-updated: 2026-06-08
+updated: 2026-07-02
+blocks:
+- gtr-3aa
+blocked_by:
+- gtr-4h2
 phase: ''
 ---
 

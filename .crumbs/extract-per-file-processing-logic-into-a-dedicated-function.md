@@ -1,7 +1,7 @@
 ---
 id: gtr-3aa
 title: Extract per-file processing logic into a dedicated function
-status: open
+status: blocked
 type: task
 priority: 2
 tags:
@@ -9,7 +9,9 @@ tags:
 - readability
 - testability
 created: 2026-06-08
-updated: 2026-06-08
+updated: 2026-07-02
+blocked_by:
+- gtr-3dm
 phase: ''
 ---
 
