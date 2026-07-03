@@ -78,7 +78,7 @@ pub fn process_file(
     opts: &ProcessOptions,
 ) -> anyhow::Result<bool> {
     let target_display = target.display();
-    let (verb, past, arrow) = if opts.move_files {
+    let (verb, op, arrow) = if opts.move_files {
         ("Moving", "move", "-->")
     } else {
         ("Copying", "copy", "==>")
@@ -105,9 +105,10 @@ pub fn process_file(
         }
         Err(err) => {
             if opts.stop_on_error {
-                anyhow::bail!("{err}. Unable to {past} {source} to {target_display}. Halting.");
+                return Err(err)
+                    .with_context(|| format!("Unable to {op} '{source}' to '{target_display}'"));
             }
-            log::warn!("Unable to {past} {source} to {target_display}. Continuing.");
+            log::warn!("Unable to {op} {source} to {target_display}. Continuing.");
             Ok(false)
         }
     }
