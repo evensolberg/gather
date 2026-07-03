@@ -10,7 +10,7 @@ All notable changes to this project will be documented in this file.
 - Modernise `main()`: replace `process::exit` with `ExitCode::FAILURE` so destructors and buffered log flushes run on error path (#81)
 - Remove dead `.replace('"', "")` workaround — `{err}` (Display) never emits spurious quotes (#81)
 
-### Tests
+### Testing
 
 - Add integration tests covering error-path exit code, stderr routing, and quote-free error messages (#81, gtr-6ug, gtr-bmr)
 - Add unit tests for `check_directory` and `log_build` (#78, gtr-ar3)
@@ -21,13 +21,10 @@ All notable changes to this project will be documented in this file.
 - -q no longer silences -p/--print-summary output (#75)
 - -q no longer silences -n/--dry-run banner and file previews (#77)
 
-### Dependencies
+### Miscellaneous Tasks
 
 - Bump `log` from 0.4.32 to 0.4.33 (#79)
 - Bump `env_logger` from 0.11.10 to 0.11.11 (#80)
-
-### Chore
-
 - Updated the justfile
 
 ## [0.2.6] - 2026-06-09
