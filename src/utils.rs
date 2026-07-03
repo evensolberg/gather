@@ -90,10 +90,20 @@ pub fn validate_sources(sources: &[&str], opts: &ProcessOptions) -> anyhow::Resu
         return Ok(());
     }
 
+    // In the hard-error (stop_on_error) case: include every missing path in the
+    // error message so it appears on stderr via the `eprintln!` in main().  This
+    // gives the caller the complete picture of all absent files in one fatal
+    // message before any files are moved or copied.
+    //
+    // Note: dry-run is non-destructive, so stop_on_error is suppressed for it —
+    // the loop's own dry-run output will show which files would be skipped.
+    //
+    // Note: a TOCTOU race exists between this check and the actual fs::copy /
+    // fs::rename in process_file.  A file deleted between the two points will
+    // produce a false-clean pre-flight followed by a mid-run copy error.  This
+    // is inherent in any check-then-act design and is acceptable for the
+    // single-user interactive use case this tool targets.
     if opts.stop_on_error && !opts.dry_run {
-        // Include every missing path in the error message so it appears on
-        // stderr via the `eprintln!` in main().  This gives the caller a
-        // complete picture of all absent files in one fatal message.
         let list = missing
             .iter()
             .map(|p| format!("  {p}"))
@@ -103,10 +113,6 @@ pub fn validate_sources(sources: &[&str], opts: &ProcessOptions) -> anyhow::Resu
             "{} source file(s) not found:\n{list}\nHalting.",
             missing.len()
         );
-    }
-
-    for path in &missing {
-        log::warn!("Source file not found: {path}");
     }
 
     Ok(())
@@ -134,6 +140,12 @@ pub fn process_file(
     };
 
     if opts.dry_run {
+        // Skip missing sources silently — validate_sources already warned about them
+        // before the loop started.  Printing an arrow here would give a false-safe
+        // picture: the real run would fail or skip the file, not copy it.
+        if !std::path::Path::new(source).exists() {
+            return Ok(false);
+        }
         println!("  {source} {arrow} {target_display}");
         return Ok(true);
     }
@@ -236,6 +248,28 @@ mod tests {
     // ---------------------------------------------------------------------------
     // process_file
     // ---------------------------------------------------------------------------
+
+    #[test]
+    fn process_file_dry_run_missing_source_returns_ok_false_without_creating_file() {
+        // A missing source in dry-run must return Ok(false) and NOT print an arrow —
+        // validate_sources already warned about it; showing a success-looking "==>" line
+        // would give a false-safe picture of what the real run would do.
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let src = dir.path().join("no_such_file.txt"); // intentionally absent
+        let tgt = dir.path().join("out.txt");
+        let opts = ProcessOptions {
+            dry_run: true,
+            move_files: false,
+            stop_on_error: false,
+            show_detail_info: false,
+        };
+        let result = process_file(src.to_str().expect("utf-8"), &tgt, &opts);
+        assert!(
+            !result.unwrap(),
+            "dry_run + missing source should return Ok(false)"
+        );
+        assert!(!tgt.exists(), "dry_run must not create the target file");
+    }
 
     #[test]
     fn process_file_dry_run_copy_returns_ok_true_without_creating_file() {
