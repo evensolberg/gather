@@ -11,8 +11,6 @@ tags:
 created: 2026-06-08
 updated: 2026-07-02
 closed_reason: 'Done in PR #81 (refactor/modernise-main). main() returns ExitCode::FAILURE/SUCCESS; String::as_str path simplified.'
-blocks:
-- gtr-4h2
 phase: ''
 ---
 

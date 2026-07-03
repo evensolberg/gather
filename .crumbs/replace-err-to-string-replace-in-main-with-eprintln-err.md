@@ -11,8 +11,6 @@ tags:
 created: 2026-06-13
 updated: 2026-07-02
 closed_reason: 'Done in PR #81. Dead replace() removed; eprintln!("{err}") used directly.'
-blocks:
-- gtr-4h2
 phase: ''
 ---
 
