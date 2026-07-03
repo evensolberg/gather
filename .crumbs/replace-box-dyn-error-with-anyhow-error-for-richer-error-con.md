@@ -1,7 +1,7 @@
 ---
 id: gtr-jz8
 title: Replace Box<dyn Error> with anyhow::Error for richer error context
-status: open
+status: closed
 type: feature
 priority: 2
 tags:
@@ -9,7 +9,7 @@ tags:
 - anyhow
 - code-quality
 created: 2026-06-08
-updated: 2026-06-08
+updated: 2026-07-03
 phase: ''
 ---
 
