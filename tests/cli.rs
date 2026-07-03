@@ -208,3 +208,60 @@ fn quiet_and_dry_run_move_still_shows_preview() {
         "expected move preview '{src_str} --> {dst_str}' when -n -q --move combined, got:\n{stdout}"
     );
 }
+
+// -------------------------------------------------------------------
+// gtr-6ug / gtr-bmr — modernise main(): error-path behaviour guards
+// -------------------------------------------------------------------
+
+/// A nonexistent target directory must cause gather to exit with code 1.
+/// Regression guard: ensures the `if let Err` rewrite preserves the non-zero exit.
+#[test]
+fn bad_target_exits_with_code_one() {
+    let output = Command::new(GATHER)
+        .args(["somefile.txt", "-t", "/nonexistent/path/gather_test_abc123"])
+        .output()
+        .expect("failed to run gather");
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "expected exit code 1 for a missing target directory, got {:?}",
+        output.status,
+    );
+}
+
+/// Error messages must appear on stderr, not stdout.
+/// Regression guard: a naïve `fn main() -> Result<…>` could route errors to
+/// the wrong stream if the runtime's Termination impl is used incorrectly.
+#[test]
+fn error_message_goes_to_stderr() {
+    let output = Command::new(GATHER)
+        .args(["somefile.txt", "-t", "/nonexistent/path/gather_test_abc123"])
+        .output()
+        .expect("failed to run gather");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stderr.is_empty(),
+        "expected an error message on stderr, got nothing"
+    );
+    assert!(
+        stdout.is_empty(),
+        "expected stdout to be empty on error, got:\n{stdout}"
+    );
+}
+
+/// Error messages must not contain wrapping quote characters.
+/// Regression guard: `fn main() -> Result<(), Box<dyn Error>>` uses `{{:?}}`
+/// (Debug) which wraps String-backed errors in quotes — this test catches that.
+#[test]
+fn error_message_contains_no_quotes() {
+    let output = Command::new(GATHER)
+        .args(["somefile.txt", "-t", "/nonexistent/path/gather_test_abc123"])
+        .output()
+        .expect("failed to run gather");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains('"'),
+        "error message must not contain quote characters; got:\n{stderr}"
+    );
+}
