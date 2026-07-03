@@ -104,7 +104,7 @@ pub fn validate_sources(sources: &[&str], opts: &ProcessOptions) -> anyhow::Resu
                 // An OS-level error while probing existence (e.g. permission
                 // denied) will almost certainly prevent the copy/move from
                 // succeeding too; surface it immediately with context.
-                return Err(anyhow::Error::from(err))
+                return Err(err)
                     .with_context(|| format!("Unable to access source file '{s}'"));
             }
         }
