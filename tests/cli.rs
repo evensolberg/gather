@@ -330,3 +330,106 @@ fn move_error_message_contains_no_quotes() {
         "move error message must not contain quote characters; got:\n{stderr}"
     );
 }
+
+// -------------------------------------------------------------------
+// gtr-wek — pre-flight existence validation before the processing loop
+// -------------------------------------------------------------------
+
+/// With `--stop-on-error`, a missing source file must cause exit 1 with an
+/// error message on stderr *before* any other file is processed.
+#[test]
+fn preflight_missing_source_stop_on_error_exits_nonzero() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let dst = tmp.path().join("dst");
+    fs::create_dir_all(&dst).expect("create dst dir");
+
+    // One real file + one absent file
+    let real = tmp.path().join("real.txt");
+    fs::write(&real, b"data").expect("write real file");
+
+    let output = Command::new(GATHER)
+        .arg("--stop-on-error")
+        .arg(real.to_str().unwrap())
+        .arg("gather_test_preflight_nosuchfile.txt") // guaranteed absent
+        .arg("-t")
+        .arg(&dst)
+        .output()
+        .expect("failed to run gather");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "expected non-zero exit when a source is missing with --stop-on-error; got 0\nstderr: {stderr}"
+    );
+    assert!(
+        !stderr.is_empty(),
+        "expected an error on stderr for missing source with --stop-on-error"
+    );
+}
+
+/// Without `--stop-on-error`, a missing source file should produce a warning
+/// on stdout but the process must still exit 0 and process the existing files.
+#[test]
+fn preflight_missing_source_without_stop_on_error_continues() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let dst = tmp.path().join("dst");
+    fs::create_dir_all(&dst).expect("create dst dir");
+
+    let real = tmp.path().join("real.txt");
+    fs::write(&real, b"data").expect("write real file");
+
+    let output = Command::new(GATHER)
+        .arg(real.to_str().unwrap())
+        .arg("gather_test_preflight_nosuchfile.txt")
+        .arg("-t")
+        .arg(&dst)
+        .output()
+        .expect("failed to run gather");
+
+    assert!(
+        output.status.success(),
+        "expected exit 0 (continue mode) for missing source without --stop-on-error; got {:?}\nstderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // The real file must have been copied despite the missing one
+    assert!(
+        dst.join("real.txt").exists(),
+        "real.txt must be copied even when another source is missing"
+    );
+}
+
+/// With `--stop-on-error` and multiple missing files, ALL missing paths must
+/// be reported in the pre-flight pass (not just the first one).
+#[test]
+fn preflight_multiple_missing_all_reported_with_stop_on_error() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let dst = tmp.path().join("dst");
+    fs::create_dir_all(&dst).expect("create dst dir");
+
+    let output = Command::new(GATHER)
+        .arg("--stop-on-error")
+        .arg("gather_preflight_absent_alpha.txt")
+        .arg("gather_preflight_absent_beta.txt")
+        .arg("-t")
+        .arg(&dst)
+        .output()
+        .expect("failed to run gather");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Both missing filenames must appear somewhere in stderr output
+    assert!(
+        stderr.contains("gather_preflight_absent_alpha.txt"),
+        "stderr must mention the first missing file; got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("gather_preflight_absent_beta.txt"),
+        "stderr must mention the second missing file; got:\n{stderr}"
+    );
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "expected non-zero exit when sources are missing with --stop-on-error"
+    );
+}

@@ -63,6 +63,55 @@ pub struct ProcessOptions {
     pub show_detail_info: bool,
 }
 
+/// Pre-flight existence check: report all missing source paths before processing.
+///
+/// Iterates over `sources` and collects every path that does not exist on disk.
+/// All missing paths are logged as warnings so the user sees the complete error
+/// picture before any files are moved or copied.
+///
+/// When `stop_on_error` is `true` **and** `dry_run` is `false`, the function
+/// returns an error after reporting every missing path.  Dry-run is
+/// non-destructive, so it always warn-and-continues regardless of `stop_on_error`.
+///
+/// # Returns
+///
+/// - `Ok(())` when all paths exist, or when the caller has opted out of hard
+///   errors (`stop_on_error = false`, or `dry_run = true`).
+/// - `Err(...)` when one or more paths are absent and `stop_on_error` is `true`
+///   and `dry_run` is `false`.
+pub fn validate_sources(sources: &[&str], opts: &ProcessOptions) -> anyhow::Result<()> {
+    let missing: Vec<&str> = sources
+        .iter()
+        .copied()
+        .filter(|s| !std::path::Path::new(s).exists())
+        .collect();
+
+    if missing.is_empty() {
+        return Ok(());
+    }
+
+    if opts.stop_on_error && !opts.dry_run {
+        // Include every missing path in the error message so it appears on
+        // stderr via the `eprintln!` in main().  This gives the caller a
+        // complete picture of all absent files in one fatal message.
+        let list = missing
+            .iter()
+            .map(|p| format!("  {p}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        anyhow::bail!(
+            "{} source file(s) not found:\n{list}\nHalting.",
+            missing.len()
+        );
+    }
+
+    for path in &missing {
+        log::warn!("Source file not found: {path}");
+    }
+
+    Ok(())
+}
+
 /// Process a single source file: dry-run preview, copy, or move.
 ///
 /// # Returns
@@ -116,7 +165,7 @@ pub fn process_file(
 
 #[cfg(test)]
 mod tests {
-    use super::{check_directory, log_level, process_file, ProcessOptions};
+    use super::{check_directory, log_level, process_file, validate_sources, ProcessOptions};
     use log::LevelFilter;
 
     // ---------------------------------------------------------------------------
@@ -335,6 +384,123 @@ mod tests {
         assert!(
             result.is_err(),
             "missing source (move) + stop_on_error=true should return Err"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // validate_sources
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn validate_sources_all_exist_returns_ok() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let f1 = dir.path().join("a.txt");
+        let f2 = dir.path().join("b.txt");
+        std::fs::write(&f1, b"").expect("write f1");
+        std::fs::write(&f2, b"").expect("write f2");
+        let sources = [
+            f1.to_str().expect("utf-8"),
+            f2.to_str().expect("utf-8"),
+        ];
+        let opts = ProcessOptions {
+            dry_run: false,
+            move_files: false,
+            stop_on_error: false,
+            show_detail_info: false,
+        };
+        assert!(
+            validate_sources(&sources, &opts).is_ok(),
+            "all paths exist — should return Ok"
+        );
+    }
+
+    #[test]
+    fn validate_sources_empty_slice_returns_ok() {
+        let opts = ProcessOptions {
+            dry_run: false,
+            move_files: false,
+            stop_on_error: false,
+            show_detail_info: false,
+        };
+        assert!(
+            validate_sources(&[], &opts).is_ok(),
+            "empty source list should return Ok"
+        );
+    }
+
+    #[test]
+    fn validate_sources_missing_with_stop_on_error_returns_err() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let absent = dir.path().join("no_such_file.txt");
+        let sources = [absent.to_str().expect("utf-8")];
+        let opts = ProcessOptions {
+            dry_run: false,
+            move_files: false,
+            stop_on_error: true,
+            show_detail_info: false,
+        };
+        assert!(
+            validate_sources(&sources, &opts).is_err(),
+            "missing path + stop_on_error=true should return Err"
+        );
+    }
+
+    #[test]
+    fn validate_sources_missing_without_stop_on_error_returns_ok() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let absent = dir.path().join("no_such_file.txt");
+        let sources = [absent.to_str().expect("utf-8")];
+        let opts = ProcessOptions {
+            dry_run: false,
+            move_files: false,
+            stop_on_error: false,
+            show_detail_info: false,
+        };
+        assert!(
+            validate_sources(&sources, &opts).is_ok(),
+            "missing path + stop_on_error=false should return Ok (warn-and-continue)"
+        );
+    }
+
+    #[test]
+    fn validate_sources_multiple_missing_all_halt_on_stop_on_error() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let a = dir.path().join("missing_a.txt");
+        let b = dir.path().join("missing_b.txt");
+        let sources = [a.to_str().expect("utf-8"), b.to_str().expect("utf-8")];
+        let opts = ProcessOptions {
+            dry_run: false,
+            move_files: false,
+            stop_on_error: true,
+            show_detail_info: false,
+        };
+        let result = validate_sources(&sources, &opts);
+        assert!(
+            result.is_err(),
+            "multiple missing paths + stop_on_error=true should return Err"
+        );
+        let msg = format!("{}", result.unwrap_err());
+        assert!(
+            msg.contains('2'),
+            "error message should report the count (2); got: {msg}"
+        );
+    }
+
+    #[test]
+    fn validate_sources_dry_run_missing_with_stop_on_error_returns_ok() {
+        // dry-run is non-destructive — missing files should warn but not abort.
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let absent = dir.path().join("no_such_file.txt");
+        let sources = [absent.to_str().expect("utf-8")];
+        let opts = ProcessOptions {
+            dry_run: true,
+            move_files: false,
+            stop_on_error: true,
+            show_detail_info: false,
+        };
+        assert!(
+            validate_sources(&sources, &opts).is_ok(),
+            "dry-run + stop_on_error=true + missing path should still return Ok"
         );
     }
 }

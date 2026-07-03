@@ -12,11 +12,13 @@ fn run() -> anyhow::Result<()> {
     // Set up logging
     utils::log_build(&cli_args);
 
-    // create a list of the files to gather
-    let sources = cli_args
+    // Collect source paths into a Vec so we can run the pre-flight existence
+    // check over the whole list before touching any files.
+    let sources: Vec<&str> = cli_args
         .get_many::<String>("read")
         .unwrap_or_default()
-        .map(String::as_str);
+        .map(String::as_str)
+        .collect();
     log::debug!("files_to_gather: {sources:?}");
 
     // Verify that the target exists and that it is a directory
@@ -48,12 +50,17 @@ fn run() -> anyhow::Result<()> {
         println!("Starting dry-run.");
     }
 
+    // Pre-flight: check all source paths exist before doing any file operations.
+    // Reports every missing path upfront so the user sees the full error picture
+    // before any files are moved or copied.
+    utils::validate_sources(&sources, &opts)?;
+
     let mut total_file_count: usize = 0;
     let mut processed_file_count: usize = 0;
     let mut skipped_file_count: usize = 0;
 
     // Gather files
-    for source in sources {
+    for source in &sources {
         total_file_count += 1;
 
         // Paths ending in "/" or ".." have no filename component — treat like any other error.
