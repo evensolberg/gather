@@ -213,12 +213,24 @@ fn quiet_and_dry_run_move_still_shows_preview() {
 // gtr-6ug / gtr-bmr — modernise main(): error-path behaviour guards
 // -------------------------------------------------------------------
 
+/// Returns a `PathBuf` that is guaranteed not to exist: a named subdirectory
+/// inside a freshly-created `TempDir`.  The `TempDir` handle must be kept
+/// alive for the duration of the test (RAII drop removes the parent).
+///
+/// Using temp-dir infrastructure (rather than a hard-coded absolute path)
+/// ensures the path is absent on every machine without relying on filesystem
+/// conventions that could be violated on CI.
+fn absent_path(tmp: &tempfile::TempDir) -> std::path::PathBuf {
+    tmp.path().join("no_such_subdir")
+}
+
 /// A nonexistent target directory must cause gather to exit with code 1.
 /// Regression guard: ensures the `if let Err` rewrite preserves the non-zero exit.
 #[test]
 fn bad_target_exits_with_code_one() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
     let output = Command::new(GATHER)
-        .args(["somefile.txt", "-t", "/nonexistent/path/gather_test_abc123"])
+        .args(["somefile.txt", "-t", absent_path(&tmp).to_str().unwrap()])
         .output()
         .expect("failed to run gather");
     assert_eq!(
@@ -234,8 +246,9 @@ fn bad_target_exits_with_code_one() {
 /// the wrong stream if the runtime's Termination impl is used incorrectly.
 #[test]
 fn error_message_goes_to_stderr() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
     let output = Command::new(GATHER)
-        .args(["somefile.txt", "-t", "/nonexistent/path/gather_test_abc123"])
+        .args(["somefile.txt", "-t", absent_path(&tmp).to_str().unwrap()])
         .output()
         .expect("failed to run gather");
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -250,18 +263,57 @@ fn error_message_goes_to_stderr() {
     );
 }
 
-/// Error messages must not contain wrapping quote characters.
-/// Regression guard: `fn main() -> Result<(), Box<dyn Error>>` uses `{{:?}}`
+/// Error messages from `check_directory` must not contain wrapping quote characters.
+/// Regression guard: `fn main() -> Result<(), Box<dyn Error>>` uses `{:?}`
 /// (Debug) which wraps String-backed errors in quotes — this test catches that.
 #[test]
 fn error_message_contains_no_quotes() {
-    let output = Command::new(GATHER)
-        .args(["somefile.txt", "-t", "/nonexistent/path/gather_test_abc123"])
-        .output()
-        .expect("failed to run gather");
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let stderr = String::from_utf8_lossy(
+        &Command::new(GATHER)
+            .args(["somefile.txt", "-t", absent_path(&tmp).to_str().unwrap()])
+            .output()
+            .expect("failed to run gather")
+            .stderr,
+    )
+    .into_owned();
     assert!(
         !stderr.contains('"'),
-        "error message must not contain quote characters; got:\n{stderr}"
+        "check_directory error must not contain quote characters; got:\n{stderr}"
+    );
+}
+
+/// Error messages from a failed copy (the `--stop` path) must also contain no
+/// quote characters.  The copy/move error format embeds an `io::Error` via
+/// Display; this test guards that the Display representation is quote-free.
+#[test]
+fn copy_error_message_contains_no_quotes() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    // Use a valid target dir so check_directory passes and the copy loop runs.
+    let dst = tmp.path().join("dst");
+    fs::create_dir_all(&dst).expect("create dst dir");
+
+    let output = Command::new(GATHER)
+        .args([
+            "--stop-on-error",
+            // A well-formed filename (file_name() is Some) but absent on disk,
+            // so fs::copy fails and — with --stop-on-error — the error reaches main().
+            "gather_test_nosuchfile_abc123.txt",
+            "-t",
+            dst.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run gather");
+
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "expected exit code 1 for a copy error with --stop, got {:?}",
+        output.status,
+    );
+    assert!(
+        !stderr.contains('"'),
+        "copy error message must not contain quote characters; got:\n{stderr}"
     );
 }
