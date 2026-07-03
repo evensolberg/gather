@@ -133,12 +133,17 @@ fn run() -> Result<(), Box<dyn Error>> {
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// The actual executable function that gets called when the program is invoked.
-fn main() {
-    if let Err(err) = run() {
-        // Use eprintln! so fatal errors always appear on stderr regardless of
-        // the logger's filter level (which -q/--quiet sets to LevelFilter::Off).
-        // {err} uses Display — no spurious quote characters around the message.
-        eprintln!("{err}");
-        std::process::exit(1);
+fn main() -> std::process::ExitCode {
+    match run() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(err) => {
+            // Use eprintln! so fatal errors always appear on stderr regardless of
+            // the logger's filter level (which -q/--quiet sets to LevelFilter::Off).
+            // {err} uses Display — no spurious quote characters around the message.
+            // Returning ExitCode::FAILURE (rather than calling process::exit) lets
+            // destructors and buffered log flushes run on the error path too.
+            eprintln!("{err}");
+            std::process::ExitCode::FAILURE
+        }
     }
 }
