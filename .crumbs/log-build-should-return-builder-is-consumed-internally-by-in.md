@@ -1,7 +1,7 @@
 ---
 id: gtr-3dm
 title: log_build() should return () — Builder is consumed internally by .init()
-status: blocked
+status: in_progress
 type: task
 priority: 2
 tags:
@@ -11,8 +11,6 @@ created: 2026-06-08
 updated: 2026-07-02
 blocks:
 - gtr-3aa
-blocked_by:
-- gtr-4h2
 phase: ''
 ---
 
@@ -34,3 +32,5 @@ in main.rs to discard the assignment entirely.
   Builder::new().filter_level(level).target(Target::Stdout).init();
 
 This also folds the quiet check into the same expression rather than a separate if-block.
+
+[start] 2026-07-02 22:04:04
