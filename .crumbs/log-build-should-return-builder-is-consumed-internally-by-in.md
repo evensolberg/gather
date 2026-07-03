@@ -1,7 +1,7 @@
 ---
 id: gtr-3dm
 title: log_build() should return () — Builder is consumed internally by .init()
-status: in_progress
+status: closed
 type: task
 priority: 2
 tags:
@@ -34,3 +34,5 @@ in main.rs to discard the assignment entirely.
 This also folds the quiet check into the same expression rather than a separate if-block.
 
 [start] 2026-07-02 22:04:04
+
+[stop]  2026-07-02 22:13:25  9m 21s
