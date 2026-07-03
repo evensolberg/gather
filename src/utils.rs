@@ -79,39 +79,49 @@ pub struct ProcessOptions {
 /// - `Err(...)` when one or more paths are absent and `stop_on_error` is `true`
 ///   and `dry_run` is `false`.
 pub fn validate_sources(sources: &[&str], opts: &ProcessOptions) -> anyhow::Result<()> {
-    let missing: Vec<&str> = sources
-        .iter()
-        .copied()
-        .filter(|s| !std::path::Path::new(s).exists())
-        .collect();
-
-    if missing.is_empty() {
+    // Only meaningful in hard-error, non-dry-run mode.  The caller guards this,
+    // but the check is kept here too so the function is self-contained for tests.
+    if !opts.stop_on_error || opts.dry_run {
         return Ok(());
     }
 
-    // In the hard-error (stop_on_error) case: include every missing path in the
-    // error message so it appears on stderr via the `eprintln!` in main().  This
-    // gives the caller the complete picture of all absent files in one fatal
-    // message before any files are moved or copied.
-    //
-    // Note: dry-run is non-destructive, so stop_on_error is suppressed for it —
-    // process_file's dry-run guard prints a "(not found — would be skipped)"
-    // notice per missing file so the user still gets per-file feedback.
+    // Use try_exists() rather than exists() so that OS errors such as "permission
+    // denied" surface as immediate hard errors instead of being silently treated
+    // as "not found".  exists() returns false for *any* metadata failure; only
+    // Ok(false) from try_exists() means the file is genuinely absent.
     //
     // Note: a TOCTOU race exists between this check and the actual fs::copy /
     // fs::rename in process_file.  A file deleted between the two points will
     // produce a false-clean pre-flight followed by a mid-run copy error.  This
     // is inherent in any check-then-act design and is acceptable for the
     // single-user interactive use case this tool targets.
-    if opts.stop_on_error && !opts.dry_run {
-        anyhow::bail!(
-            "{} source file(s) not found:\n  {}\nHalting.",
-            missing.len(),
-            missing.join("\n  ")
-        );
+    let mut missing: Vec<&str> = Vec::new();
+    for &s in sources.iter() {
+        match std::path::Path::new(s).try_exists() {
+            Ok(true) => {}  // file exists — nothing to do
+            Ok(false) => missing.push(s),
+            Err(err) => {
+                // An OS-level error while probing existence (e.g. permission
+                // denied) will almost certainly prevent the copy/move from
+                // succeeding too; surface it immediately with context.
+                return Err(anyhow::Error::from(err))
+                    .with_context(|| format!("Unable to access source file '{s}'"));
+            }
+        }
     }
 
-    Ok(())
+    if missing.is_empty() {
+        return Ok(());
+    }
+
+    // Include every missing path in the error message so it appears on stderr
+    // via the `eprintln!` in main(), giving the user the full picture before any
+    // files are moved or copied.
+    anyhow::bail!(
+        "{} source file(s) not found:\n  {}\nHalting.",
+        missing.len(),
+        missing.join("\n  ")
+    );
 }
 
 /// Process a single source file: dry-run preview, copy, or move.
@@ -136,14 +146,22 @@ pub fn process_file(
     };
 
     if opts.dry_run {
-        // Guard against missing sources: a file absent at dry-run time would not
-        // be copied in a real run either (TOCTOU notwithstanding).  Printing an
-        // arrow for a non-existent source would give a false-safe dry-run picture.
-        // Use println! so the notice is always visible, matching the arrow line
-        // behaviour which also bypasses the logger (-q does not suppress it).
-        if !std::path::Path::new(source).exists() {
-            println!("  {source} (not found — would be skipped)");
-            return Ok(false);
+        // Guard against inaccessible sources: a file absent or unreadable at
+        // dry-run time would not be copied in a real run either (TOCTOU
+        // notwithstanding).  Use try_exists() so permission errors are not
+        // silently misreported as "not found".  Use println! so the notice is
+        // always visible, matching the arrow line which also bypasses the logger
+        // (-q does not suppress it).
+        match std::path::Path::new(source).try_exists() {
+            Ok(false) => {
+                println!("  {source} (not found — would be skipped)");
+                return Ok(false);
+            }
+            Err(_) => {
+                println!("  {source} (not accessible — would be skipped)");
+                return Ok(false);
+            }
+            Ok(true) => {} // file exists — show the preview arrow below
         }
         println!("  {source} {arrow} {target_display}");
         return Ok(true);
