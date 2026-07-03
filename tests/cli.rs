@@ -253,24 +253,33 @@ fn bad_target_error_path_is_correct() {
     );
 }
 
-/// Error messages from a failed copy (the `--stop-on-error` path) must also
-/// contain no quote characters.  The copy/move error format embeds an `io::Error`
-/// via Display; this test guards that the Display representation is quote-free.
-#[test]
-fn copy_error_message_contains_no_quotes() {
+/// Helper: run an error-path test and return the captured output.
+/// Sets up a valid target directory, passes a nonexistent source file,
+/// and optionally enables --move; with --stop-on-error the error propagates
+/// to main() so the full error-formatting path is exercised.
+fn run_gather_copy_or_move_error(use_move: bool) -> std::process::Output {
     let tmp = tempfile::tempdir().expect("create temp dir");
-    // Use a valid target dir so check_directory passes and the copy loop runs.
     let dst = tmp.path().join("dst");
     fs::create_dir_all(&dst).expect("create dst dir");
-
-    let output = Command::new(GATHER)
-        .arg("--stop-on-error")
-        .arg("gather_test_nosuchfile_abc123.txt") // well-formed name but absent on disk
+    let mut cmd = Command::new(GATHER);
+    cmd.arg("--stop-on-error");
+    if use_move {
+        cmd.arg("--move");
+    }
+    cmd.arg("gather_test_nosuchfile_abc123.txt") // well-formed name but absent on disk
         .arg("-t")
-        .arg(&dst)
+        .arg(dst)
         .output()
-        .expect("failed to run gather");
+        .expect("failed to run gather")
+}
 
+/// Error messages from a failed copy (the `--stop-on-error` path) must contain
+/// no quote characters, route to stderr (not stdout), and produce exit code 1.
+/// Guards that the io::Error Display embedded in the copy-error format string is
+/// quote-free and that the error stream is correct.
+#[test]
+fn copy_error_message_contains_no_quotes() {
+    let output = run_gather_copy_or_move_error(false);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(
         output.status.code(),
@@ -283,7 +292,41 @@ fn copy_error_message_contains_no_quotes() {
         "expected an error message on stderr, got nothing"
     );
     assert!(
+        output.stdout.is_empty(),
+        "expected stdout to be empty on copy error, got:\n{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(
         !stderr.contains('"'),
         "copy error message must not contain quote characters; got:\n{stderr}"
+    );
+}
+
+/// Error messages from a failed move (--move --stop-on-error path) must also
+/// contain no quote characters.  The move path uses std::fs::rename, which
+/// can produce different io::Error variants than fs::copy; this test guards
+/// the rename Display is also quote-free.
+#[test]
+fn move_error_message_contains_no_quotes() {
+    let output = run_gather_copy_or_move_error(true);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "expected exit code 1 for a move error with --stop-on-error, got {:?}",
+        output.status,
+    );
+    assert!(
+        !stderr.is_empty(),
+        "expected an error message on stderr, got nothing"
+    );
+    assert!(
+        output.stdout.is_empty(),
+        "expected stdout to be empty on move error, got:\n{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(
+        !stderr.contains('"'),
+        "move error message must not contain quote characters; got:\n{stderr}"
     );
 }
