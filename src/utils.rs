@@ -1,3 +1,4 @@
+use anyhow::Context as _;
 use env_logger::{Builder, Target};
 use log::LevelFilter;
 
@@ -9,11 +10,13 @@ use log::LevelFilter;
 ///
 /// # Returns
 ///
-/// - `Result<(), Box<dyn std::error::Error>>` - returns an empty `Ok()` if it is a directory, or an error if not.
-pub fn check_directory(target: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let metadata = std::fs::metadata(target).map_err(|e| format!("Target: {e}"))?;
+/// - `anyhow::Result<()>` - returns an empty `Ok()` if it is a directory, or an
+///   error (with the target path embedded) if not.
+pub fn check_directory(target: &str) -> anyhow::Result<()> {
+    let metadata =
+        std::fs::metadata(target).with_context(|| format!("Target directory '{target}'"))?;
     if !metadata.is_dir() {
-        return Err("Specified target is not a directory. Unable to proceed.".into());
+        anyhow::bail!("Specified target is not a directory. Unable to proceed.");
     }
     log::debug!("Specified target is a directory. Proceeding.");
 

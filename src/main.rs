@@ -1,14 +1,11 @@
 mod cli;
 mod utils;
 
-use std::error::Error;
 use std::path::Path;
-
-// Logging
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// This is where the magic happens.
-fn run() -> Result<(), Box<dyn Error>> {
+fn run() -> anyhow::Result<()> {
     // Set up the command line. Ref https://docs.rs/clap for details.
     let cli_args = cli::build();
 
@@ -53,7 +50,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         // Paths ending in "/" or ".." have no filename component — treat like any other error.
         let Some(file_name) = Path::new(source).file_name() else {
             if stop_on_error {
-                return Err(format!("Error: Invalid filename in path: {source}. Halting.").into());
+                anyhow::bail!("Error: Invalid filename in path: {source}. Halting.");
             }
             log::warn!("Invalid filename in path: {source}. Continuing.");
             skipped_file_count += 1;
@@ -83,10 +80,9 @@ fn run() -> Result<(), Box<dyn Error>> {
                 }
                 Err(err) => {
                     if stop_on_error {
-                        return Err(format!(
+                        anyhow::bail!(
                             "Error: {err}. Unable to move {source} to {target}. Halting."
-                        )
-                        .into());
+                        );
                     }
                     log::warn!("Unable to move {source} to {target}. Continuing.");
                     skipped_file_count += 1;
@@ -103,17 +99,16 @@ fn run() -> Result<(), Box<dyn Error>> {
                 }
                 Err(err) => {
                     if stop_on_error {
-                        return Err(format!(
+                        anyhow::bail!(
                             "Error: {err}. Unable to copy {source} to {target}. Halting."
-                        )
-                        .into());
+                        );
                     }
                     log::warn!("Unable to copy {source} to {target}. Continuing.");
                     skipped_file_count += 1;
                 }
             }
         } // if dry_run
-    } // for filename
+    } // for source
 
     if print_summary {
         // Write directly to stdout so the summary is never silenced by -q/--quiet.
