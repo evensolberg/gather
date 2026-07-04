@@ -90,11 +90,9 @@ fn run() -> anyhow::Result<()> {
         let mut processed = 0;
         let mut skipped = 0;
         for &source in &sources {
-            let claimed = if opts.dry_run {
-                Some(&mut dry_run_claimed)
-            } else {
-                None
-            };
+            // Re-borrow the set each iteration (a mutable borrow cannot outlive
+            // the loop body). then_some passes None in non-dry-run mode.
+            let claimed = opts.dry_run.then_some(&mut dry_run_claimed);
             if utils::process_source(source, target_dir, &opts, claimed)? {
                 processed += 1;
             } else {

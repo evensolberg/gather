@@ -259,9 +259,8 @@ fn resolve_unique_target(
     // from the caller-supplied claimed set (if provided).  Passing None
     // skips the claimed check and incurs no allocation — the common case
     // for non-dry-run operation where the real filesystem is authoritative.
-    let is_free = |p: &std::path::PathBuf| {
-        !p.exists() && claimed.is_none_or(|c| !c.contains(p))
-    };
+    let is_free =
+        |p: &std::path::PathBuf| !p.exists() && claimed.is_none_or(|c| !c.contains(p));
 
     let base = dir.join(file_name);
     if is_free(&base) {
@@ -271,20 +270,15 @@ fn resolve_unique_target(
     let p = std::path::Path::new(file_name);
     // file_stem() returns None only for the empty string, which is already
     // rejected by the file_name() guard in process_source before we get here.
-    let stem = p.file_stem().unwrap_or(file_name);
-    let ext = p.extension();
+    let stem = p.file_stem().unwrap_or(file_name).to_string_lossy();
+    let ext = p.extension().map(|e| e.to_string_lossy());
 
     for n in 1_u32.. {
-        let new_name = match ext {
-            Some(e) => format!(
-                "{}_{}.{}",
-                stem.to_string_lossy(),
-                n,
-                e.to_string_lossy()
-            ),
-            None => format!("{}_{}", stem.to_string_lossy(), n),
+        let new_name = match &ext {
+            Some(e) => format!("{stem}_{n}.{e}"),
+            None => format!("{stem}_{n}"),
         };
-        let candidate = dir.join(&new_name);
+        let candidate = dir.join(new_name);
         if is_free(&candidate) {
             return candidate;
         }
@@ -354,11 +348,11 @@ pub fn process_source(
 
     // Warn when the target name was changed to avoid a silent overwrite.
     // Emit only the filename (not the full path) to keep the message scannable.
-    if target_path.file_name() != Some(file_name) {
-        let renamed = target_path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| target_path.display().to_string());
+    // resolve_unique_target always joins a name onto the directory, so the
+    // target always has a file_name; the guard filters out the no-change case.
+    let final_name = target_path.file_name();
+    if final_name != Some(file_name) {
+        let renamed = final_name.unwrap_or(file_name).to_string_lossy();
         log::warn!("Name collision: '{source}' written as '{renamed}' to avoid overwriting an existing file.");
     }
 
