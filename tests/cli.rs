@@ -358,15 +358,26 @@ fn preflight_missing_source_stop_on_error_exits_nonzero() {
         .output()
         .expect("failed to run gather");
 
+    let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_ne!(
         output.status.code(),
         Some(0),
         "expected non-zero exit when a source is missing with --stop-on-error; got 0\nstderr: {stderr}"
     );
+    // The fatal error must name the missing path and appear on stderr.
     assert!(
-        !stderr.is_empty(),
-        "expected an error on stderr for missing source with --stop-on-error"
+        stderr.contains(missing.to_str().unwrap()),
+        "expected missing path in stderr; got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("not found"),
+        "expected 'not found' in stderr; got:\n{stderr}"
+    );
+    // No normal processing output should appear on stdout.
+    assert!(
+        stdout.is_empty(),
+        "expected stdout to be empty when pre-flight aborts; got:\n{stdout}"
     );
     assert!(
         !dst.join("real.txt").exists(),
@@ -394,13 +405,29 @@ fn preflight_missing_source_without_stop_on_error_continues() {
         .output()
         .expect("failed to run gather");
 
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
-        "expected exit 0 (continue mode) for missing source without --stop-on-error; got {:?}\nstderr: {}",
+        "expected exit 0 (continue mode) for missing source without --stop-on-error; got {:?}\nstderr: {stderr}",
         output.status,
-        String::from_utf8_lossy(&output.stderr)
     );
-    // The real file must have been copied despite the missing one
+    // The warning must mention the missing path and "not found" on stdout
+    // (the logger is configured with Target::Stdout).
+    assert!(
+        stdout.contains(missing.to_str().unwrap()),
+        "expected missing path in stdout warning; got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("not found"),
+        "expected 'not found' in stdout warning; got:\n{stdout}"
+    );
+    // Nothing should have been written to stderr in continue mode.
+    assert!(
+        stderr.is_empty(),
+        "expected stderr to be empty in continue mode; got:\n{stderr}"
+    );
+    // The real file must have been copied despite the missing one.
     assert!(
         dst.join("real.txt").exists(),
         "real.txt must be copied even when another source is missing"

@@ -67,9 +67,9 @@ fn run() -> anyhow::Result<()> {
         // (Component::ParentDir, e.g. "foo/..") or the path is the root "/"
         // (Component::RootDir) — neither has a usable target filename.
         // In soft-error mode validate_sources is a no-op so this guard is the
-        // sole protection; in stop_on_error mode validate_sources catches these
-        // paths first (as "not a regular file"), making the bail! branch a
-        // defensive fallback.
+        // sole protection; in stop_on_error mode validate_sources will have
+        // already rejected such paths (e.g. as not found, not a regular file,
+        // or inaccessible), making the bail! branch a defensive fallback.
         let Some(file_name) = Path::new(source).file_name() else {
             if opts.stop_on_error {
                 anyhow::bail!("Invalid filename in path: {source}. Halting.");
