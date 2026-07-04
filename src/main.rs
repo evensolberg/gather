@@ -93,6 +93,10 @@ fn run() -> anyhow::Result<()> {
             .collect();
         let mut processed = 0;
         let mut skipped = 0;
+        // Drain results in order. On --stop-on-error the first Err propagates
+        // via ? and exits run() before the summary block is reached, so any
+        // remaining Ok(false) entries are never counted — an accepted artifact
+        // of parallel dispatch (all workers already completed by this point).
         for result in results {
             if result? {
                 processed += 1;
