@@ -80,6 +80,13 @@ fn build_command() -> Command {
                 .help("Don't print detailed information about each file processed.")
                 .action(ArgAction::SetTrue)
         )
+        .arg( // Serial (non-parallel) processing
+            Arg::new("serial")
+                .short('1')
+                .long("serial")
+                .help("Process files serially instead of in parallel.")
+                .action(ArgAction::SetTrue)
+        )
 }
 
 #[cfg(test)]
@@ -116,6 +123,39 @@ mod tests {
         assert_eq!(
             matches.get_one::<String>("target").map(String::as_str),
             Some("/tmp/out")
+        );
+    }
+
+    #[test]
+    fn serial_flag_defaults_to_false() {
+        let matches = build_command()
+            .try_get_matches_from(["gather", "file.txt"])
+            .expect("parsing should succeed without --serial");
+        assert!(
+            !matches.get_flag("serial"),
+            "serial should default to false when flag is omitted"
+        );
+    }
+
+    #[test]
+    fn serial_flag_set_by_long_form() {
+        let matches = build_command()
+            .try_get_matches_from(["gather", "file.txt", "--serial"])
+            .expect("parsing should succeed with --serial");
+        assert!(
+            matches.get_flag("serial"),
+            "--serial should set the serial flag to true"
+        );
+    }
+
+    #[test]
+    fn serial_flag_set_by_short_form() {
+        let matches = build_command()
+            .try_get_matches_from(["gather", "file.txt", "-1"])
+            .expect("parsing should succeed with -1");
+        assert!(
+            matches.get_flag("serial"),
+            "-1 should set the serial flag to true"
         );
     }
 

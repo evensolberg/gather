@@ -1,6 +1,6 @@
 [package]
 name = "gather"
-version = "0.3.2"
+version = "0.4.0"
 description = "Gathers files from directories and subdirectories into a target directory."
 license = "Apache-2.0"
 authors = ["evensolberg <even.solberg@gmail.com>"]
@@ -16,6 +16,7 @@ anyhow = "1"
 clap = { version = "4.6.1", features = ["cargo", "env", "wrap_help"] }
 env_logger = "0.11.10"
 log = "0.4.32"
+rayon = "1"
 
 [dev-dependencies]
 tempfile = "3"

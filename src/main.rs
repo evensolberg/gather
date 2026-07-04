@@ -1,7 +1,7 @@
 mod cli;
 mod utils;
 
-use std::path::Path;
+use rayon::prelude::*;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// This is where the magic happens.
@@ -35,13 +35,15 @@ fn run() -> anyhow::Result<()> {
         show_detail_info: !cli_args.get_flag("detail-off"),
     };
     let print_summary = cli_args.get_flag("summary");
+    let serial = cli_args.get_flag("serial");
     log::debug!(
-        "dry_run: {}, move_files: {}, stop_on_error: {}, show_detail_info: {}, print_summary: {}",
+        "dry_run: {}, move_files: {}, stop_on_error: {}, show_detail_info: {}, print_summary: {}, serial: {}",
         opts.dry_run,
         opts.move_files,
         opts.stop_on_error,
         opts.show_detail_info,
-        print_summary
+        print_summary,
+        serial,
     );
 
     if opts.dry_run {
@@ -58,38 +60,32 @@ fn run() -> anyhow::Result<()> {
         utils::validate_sources(&sources)?;
     }
 
-    let mut total_file_count: usize = 0;
+    // Process files — in parallel by default, serially when --serial / -1 is set.
+    // Collect all results first so counters are accumulated after all I/O completes.
+    // Both paths call the same process_source function; only the iterator differs.
+    let results: Vec<anyhow::Result<bool>> = if serial {
+        sources
+            .iter()
+            .map(|&source| utils::process_source(source, target_dir, &opts))
+            .collect()
+    } else {
+        sources
+            .par_iter()
+            .map(|&source| utils::process_source(source, target_dir, &opts))
+            .collect()
+    };
+
+    let total_file_count = results.len();
     let mut processed_file_count: usize = 0;
     let mut skipped_file_count: usize = 0;
 
-    // Gather files
-    for source in sources.iter().copied() {
-        total_file_count += 1;
-
-        // Path::file_name() returns None when the last path component is ".."
-        // (Component::ParentDir, e.g. "foo/..") or the path is the root "/"
-        // (Component::RootDir) — neither has a usable target filename.
-        // In soft-error mode validate_sources is not called, so this guard is
-        // the sole protection; in stop_on_error mode validate_sources will
-        // have already rejected such paths (e.g. as not found, not a regular
-        // file, or inaccessible), making the bail! branch a defensive fallback.
-        let Some(file_name) = Path::new(source).file_name() else {
-            if opts.stop_on_error {
-                anyhow::bail!("Invalid filename in path: {source}. Halting.");
-            }
-            log::warn!("Invalid filename in path: {source}. Continuing.");
-            skipped_file_count += 1;
-            continue;
-        };
-
-        let new_filename = Path::new(target_dir).join(file_name);
-
-        if utils::process_file(source, &new_filename, &opts)? {
+    for result in results {
+        if result? {
             processed_file_count += 1;
         } else {
             skipped_file_count += 1;
         }
-    } // for source
+    }
 
     if print_summary {
         // Write directly to stdout so the summary is never silenced by -q/--quiet.
