@@ -233,10 +233,16 @@ pub fn process_file(
 
 /// Build a collision-free target path.
 ///
-/// Returns `{dir}/{file_name}` when that path does not already exist.
-/// Otherwise appends `_N` before the extension (`report_1.pdf`, `report_2.pdf`,
-/// …) and increments N until an unoccupied path is found.  The search is
-/// bounded by `u32::MAX` — effectively infinite for any real file system.
+/// Returns `{dir}/{file_name}` when that path does not already exist and is
+/// not already present in `claimed`.  Otherwise appends `_N` before the
+/// extension (`report_1.pdf`, `report_2.pdf`, …) until a free path is found.
+/// The search is bounded by `u32::MAX` — effectively infinite for any real
+/// file system.
+///
+/// The `claimed` set lets callers track paths that have been "virtually
+/// allocated" during a dry-run pass (where no files are written to disk).
+/// Pass an empty set for normal (non-dry-run) operation, where the real
+/// filesystem is the source of truth.
 ///
 /// Note: there is an inherent TOCTOU race between the existence check here
 /// and the subsequent write in [`process_file`].  Two parallel workers
@@ -247,9 +253,10 @@ pub fn process_file(
 fn resolve_unique_target(
     dir: &std::path::Path,
     file_name: &std::ffi::OsStr,
+    claimed: &std::collections::HashSet<std::path::PathBuf>,
 ) -> std::path::PathBuf {
     let base = dir.join(file_name);
-    if !base.exists() {
+    if !base.exists() && !claimed.contains(&base) {
         return base;
     }
 
@@ -270,7 +277,7 @@ fn resolve_unique_target(
             None => format!("{}_{}", stem.to_string_lossy(), n),
         };
         let candidate = dir.join(&new_name);
-        if !candidate.exists() {
+        if !candidate.exists() && !claimed.contains(&candidate) {
             return candidate;
         }
     }
@@ -293,6 +300,15 @@ fn resolve_unique_target(
 /// files are preserved rather than the second silently overwriting the first.
 /// A warning is emitted whenever the name changes.
 ///
+/// ## Dry-run collision tracking
+///
+/// Because dry-run never writes files to disk, the real filesystem cannot
+/// detect within-pass collisions.  Callers in dry-run mode must supply a
+/// `claimed` set; `process_source` consults the set when resolving the target
+/// and registers the chosen path so the next call sees it as occupied.  Pass
+/// `None` for normal (non-dry-run) operation — the filesystem is then the
+/// sole source of truth.
+///
 /// # Returns
 ///
 /// - `Ok(true)`  — the file was processed (copied or moved).
@@ -302,6 +318,7 @@ pub fn process_source(
     source: &str,
     target_dir: &str,
     opts: &ProcessOptions,
+    claimed: Option<&mut std::collections::HashSet<std::path::PathBuf>>,
 ) -> anyhow::Result<bool> {
     let Some(file_name) = std::path::Path::new(source).file_name() else {
         if opts.stop_on_error {
@@ -311,13 +328,32 @@ pub fn process_source(
         return Ok(false);
     };
 
-    let target_path = resolve_unique_target(std::path::Path::new(target_dir), file_name);
+    // Resolve a collision-free target path.  In dry-run mode the caller
+    // provides a `claimed` set so collisions are detected without disk writes.
+    let empty: std::collections::HashSet<std::path::PathBuf> = std::collections::HashSet::new();
+    let claimed_ref: &std::collections::HashSet<std::path::PathBuf> =
+        match claimed.as_deref() {
+            Some(c) => c,
+            None => &empty,
+        };
+    let target_path =
+        resolve_unique_target(std::path::Path::new(target_dir), file_name, claimed_ref);
+
+    // Register the chosen path so subsequent calls in the same dry-run pass
+    // see it as occupied (claimed is None in non-dry-run mode, so this is a no-op).
+    if let Some(c) = claimed {
+        c.insert(target_path.clone());
+    }
 
     // Warn when the target name was changed to avoid a silent overwrite.
+    // Emit only the filename (not the full path) to keep the message scannable.
     if target_path.file_name() != Some(file_name) {
+        let renamed = target_path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| target_path.display().to_string());
         log::warn!(
-            "Name collision: '{source}' written as '{}' to avoid overwriting an existing file.",
-            target_path.display()
+            "Name collision: '{source}' written as '{renamed}'              to avoid overwriting an existing file."
         );
     }
 
@@ -737,7 +773,7 @@ mod tests {
         };
         // "somedir/.." has no file_name() component.
         let bad_path = format!("{}/..",&dir.path().display());
-        let result = process_source(&bad_path, dir.path().to_str().expect("utf-8"), &opts);
+        let result = process_source(&bad_path, dir.path().to_str().expect("utf-8"), &opts, None);
         assert!(
             !result.expect("soft-error invalid path should return Ok, not Err"),
             "invalid path in soft-error mode should return Ok(false)"
@@ -755,7 +791,7 @@ mod tests {
             show_detail_info: false,
         };
         let bad_path = format!("{}/..",&dir.path().display());
-        let result = process_source(&bad_path, dir.path().to_str().expect("utf-8"), &opts);
+        let result = process_source(&bad_path, dir.path().to_str().expect("utf-8"), &opts, None);
         assert!(result.is_err(), "invalid path + stop_on_error=true should return Err");
     }
 
@@ -776,6 +812,7 @@ mod tests {
             src.to_str().expect("utf-8"),
             target_dir.path().to_str().expect("utf-8"),
             &opts,
+            None,
         );
         assert!(result.expect("valid copy should return Ok"), "valid copy should return Ok(true)");
         assert!(target_dir.path().join("in.txt").exists(), "copy must create target file");
@@ -791,7 +828,7 @@ mod tests {
         // When the target path does not exist, the original name is returned as-is.
         let dir = tempfile::tempdir().expect("create temp dir");
         let name = std::ffi::OsStr::new("report.pdf");
-        let result = resolve_unique_target(dir.path(), name);
+        let result = resolve_unique_target(dir.path(), name, &std::collections::HashSet::new());
         assert_eq!(
             result,
             dir.path().join("report.pdf"),
@@ -805,7 +842,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("create temp dir");
         std::fs::write(dir.path().join("report.pdf"), b"original").expect("write");
         let name = std::ffi::OsStr::new("report.pdf");
-        let result = resolve_unique_target(dir.path(), name);
+        let result = resolve_unique_target(dir.path(), name, &std::collections::HashSet::new());
         assert_eq!(
             result,
             dir.path().join("report_1.pdf"),
@@ -820,7 +857,7 @@ mod tests {
         std::fs::write(dir.path().join("report.pdf"), b"a").expect("write base");
         std::fs::write(dir.path().join("report_1.pdf"), b"b").expect("write _1");
         let name = std::ffi::OsStr::new("report.pdf");
-        let result = resolve_unique_target(dir.path(), name);
+        let result = resolve_unique_target(dir.path(), name, &std::collections::HashSet::new());
         assert_eq!(
             result,
             dir.path().join("report_2.pdf"),
@@ -834,7 +871,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("create temp dir");
         std::fs::write(dir.path().join("Makefile"), b"x").expect("write");
         let name = std::ffi::OsStr::new("Makefile");
-        let result = resolve_unique_target(dir.path(), name);
+        let result = resolve_unique_target(dir.path(), name, &std::collections::HashSet::new());
         assert_eq!(
             result,
             dir.path().join("Makefile_1"),
@@ -845,6 +882,75 @@ mod tests {
     // ---------------------------------------------------------------------------
     // process_source — collision avoidance (integration)
     // ---------------------------------------------------------------------------
+
+    #[test]
+    fn process_source_dry_run_collision_shows_distinct_targets() {
+        // In dry-run mode no files are written to disk, so resolve_unique_target
+        // would see an empty target for every call and predict the same path for
+        // both colliding sources.  The caller must supply a `claimed` set so that
+        // successive calls within the same pass claim distinct target paths.
+        let src_dir_a = tempfile::tempdir().expect("create src dir a");
+        let src_dir_b = tempfile::tempdir().expect("create src dir b");
+        let target_dir = tempfile::tempdir().expect("create target dir");
+
+        let src_a = src_dir_a.path().join("report.pdf");
+        let src_b = src_dir_b.path().join("report.pdf");
+        std::fs::write(&src_a, b"a").expect("write src a");
+        std::fs::write(&src_b, b"b").expect("write src b");
+
+        let opts = ProcessOptions {
+            dry_run: true,
+            move_files: false,
+            stop_on_error: false,
+            show_detail_info: false,
+        };
+
+        let mut claimed = std::collections::HashSet::new();
+
+        let result_a = process_source(
+            src_a.to_str().expect("utf-8"),
+            target_dir.path().to_str().expect("utf-8"),
+            &opts,
+            Some(&mut claimed),
+        );
+        assert!(
+            result_a.expect("first dry-run should succeed"),
+            "first dry-run: Ok(true)"
+        );
+
+        let result_b = process_source(
+            src_b.to_str().expect("utf-8"),
+            target_dir.path().to_str().expect("utf-8"),
+            &opts,
+            Some(&mut claimed),
+        );
+        assert!(
+            result_b.expect("second dry-run should succeed"),
+            "second dry-run: Ok(true)"
+        );
+
+        // No files must be created (dry-run guarantee).
+        assert!(
+            !target_dir.path().join("report.pdf").exists(),
+            "dry-run must not create report.pdf"
+        );
+        assert!(
+            !target_dir.path().join("report_1.pdf").exists(),
+            "dry-run must not create report_1.pdf"
+        );
+
+        // Both predicted target paths must be registered in the claimed set.
+        let base = target_dir.path().join("report.pdf");
+        let renamed = target_dir.path().join("report_1.pdf");
+        assert!(
+            claimed.contains(&base),
+            "claimed must contain the first predicted target"
+        );
+        assert!(
+            claimed.contains(&renamed),
+            "claimed must contain the second (renamed) predicted target"
+        );
+    }
 
     #[test]
     fn process_source_collision_keeps_both_files() {
@@ -872,6 +978,7 @@ mod tests {
             src_a.to_str().expect("utf-8"),
             target_dir.path().to_str().expect("utf-8"),
             &opts,
+            None,
         );
         assert!(
             result_a.expect("first copy should not error"),
@@ -883,6 +990,7 @@ mod tests {
             src_b.to_str().expect("utf-8"),
             target_dir.path().to_str().expect("utf-8"),
             &opts,
+            None,
         );
         assert!(
             result_b.expect("second copy should not error"),
@@ -899,6 +1007,64 @@ mod tests {
         assert!(renamed.exists(), "second copy must be renamed to report_1.pdf");
         let second = std::fs::read(&renamed).expect("report_1.pdf must be readable");
         assert_eq!(second, b"content-b", "second file content must be preserved");
+    }
+
+    #[test]
+    fn process_source_collision_move_mode_keeps_both_files() {
+        // Collision avoidance must also work in move mode: the second source must
+        // be moved to a suffixed path, the first must remain at its original name,
+        // and both source files must be absent afterwards (moved, not copied).
+        let src_dir_a = tempfile::tempdir().expect("create src dir a");
+        let src_dir_b = tempfile::tempdir().expect("create src dir b");
+        let target_dir = tempfile::tempdir().expect("create target dir");
+
+        let src_a = src_dir_a.path().join("report.pdf");
+        let src_b = src_dir_b.path().join("report.pdf");
+        std::fs::write(&src_a, b"content-a").expect("write src a");
+        std::fs::write(&src_b, b"content-b").expect("write src b");
+
+        let opts = ProcessOptions {
+            dry_run: false,
+            move_files: true,
+            stop_on_error: false,
+            show_detail_info: false,
+        };
+
+        let result_a = process_source(
+            src_a.to_str().expect("utf-8"),
+            target_dir.path().to_str().expect("utf-8"),
+            &opts,
+            None,
+        );
+        assert!(
+            result_a.expect("first move should not error"),
+            "first move should return Ok(true)"
+        );
+
+        let result_b = process_source(
+            src_b.to_str().expect("utf-8"),
+            target_dir.path().to_str().expect("utf-8"),
+            &opts,
+            None,
+        );
+        assert!(
+            result_b.expect("second move should not error"),
+            "second move should return Ok(true)"
+        );
+
+        // Both source files must have been removed (moved).
+        assert!(!src_a.exists(), "first source must be gone after move");
+        assert!(!src_b.exists(), "second source must be gone after move");
+
+        // Both targets must exist with correct content.
+        let first = std::fs::read(target_dir.path().join("report.pdf"))
+            .expect("report.pdf must exist");
+        assert_eq!(first, b"content-a", "first target must not be overwritten");
+
+        let renamed = target_dir.path().join("report_1.pdf");
+        assert!(renamed.exists(), "second move must produce report_1.pdf");
+        let second = std::fs::read(&renamed).expect("report_1.pdf must be readable");
+        assert_eq!(second, b"content-b", "second target content must be preserved");
     }
 
 }
