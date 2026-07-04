@@ -231,9 +231,38 @@ pub fn process_file(
     }
 }
 
+/// Process one source path: resolve a usable filename, build the target path,
+/// then delegate to [`process_file`].
+///
+/// Isolating this logic from the main loop makes it callable from both a
+/// serial iterator and a parallel Rayon iterator without duplicating the
+/// filename-extraction guard.
+///
+/// # Returns
+///
+/// - `Ok(true)`  — the file was processed (copied or moved).
+/// - `Ok(false)` — the path was skipped (invalid filename or soft file error).
+/// - `Err(...)`  — a hard error occurred and `stop_on_error` is `true`.
+pub fn process_source(
+    source: &str,
+    target_dir: &str,
+    opts: &ProcessOptions,
+) -> anyhow::Result<bool> {
+    let Some(file_name) = std::path::Path::new(source).file_name() else {
+        if opts.stop_on_error {
+            anyhow::bail!("Invalid filename in path: '{source}'. Halting.");
+        }
+        log::warn!("Invalid filename in path: '{source}'. Continuing.");
+        return Ok(false);
+    };
+
+    let new_filename = std::path::Path::new(target_dir).join(file_name);
+    process_file(source, &new_filename, opts)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{check_directory, log_level, process_file, validate_sources, ProcessOptions};
+    use super::{check_directory, log_level, process_file, process_source, validate_sources, ProcessOptions};
     use log::LevelFilter;
 
     // ---------------------------------------------------------------------------
@@ -622,6 +651,68 @@ mod tests {
             msg.contains("not a regular file"),
             "error message should mention 'not a regular file'; got: {msg}"
         );
+    }
+
+    // ---------------------------------------------------------------------------
+    // process_source
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn process_source_invalid_path_soft_error_returns_ok_false() {
+        // A path whose last component is ".." has no usable filename.
+        // In soft-error mode this must return Ok(false) (logging a warning) rather than panic.
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let opts = ProcessOptions {
+            dry_run: false,
+            move_files: false,
+            stop_on_error: false,
+            show_detail_info: false,
+        };
+        // "somedir/.." has no file_name() component.
+        let bad_path = format!("{}/..",&dir.path().display());
+        let result = process_source(&bad_path, dir.path().to_str().expect("utf-8"), &opts);
+        assert!(
+            !result.expect("soft-error invalid path should return Ok, not Err"),
+            "invalid path in soft-error mode should return Ok(false)"
+        );
+    }
+
+    #[test]
+    fn process_source_invalid_path_hard_error_returns_err() {
+        // With stop_on_error the invalid-path case must bail rather than Ok(false).
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let opts = ProcessOptions {
+            dry_run: false,
+            move_files: false,
+            stop_on_error: true,
+            show_detail_info: false,
+        };
+        let bad_path = format!("{}/..",&dir.path().display());
+        let result = process_source(&bad_path, dir.path().to_str().expect("utf-8"), &opts);
+        assert!(result.is_err(), "invalid path + stop_on_error=true should return Err");
+    }
+
+    #[test]
+    fn process_source_valid_file_copy_succeeds() {
+        // process_source with a normal file delegates to process_file and copies it.
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let src = dir.path().join("in.txt");
+        std::fs::write(&src, b"hello").expect("write src");
+        let target_dir = tempfile::tempdir().expect("create target dir");
+        let opts = ProcessOptions {
+            dry_run: false,
+            move_files: false,
+            stop_on_error: false,
+            show_detail_info: false,
+        };
+        let result = process_source(
+            src.to_str().expect("utf-8"),
+            target_dir.path().to_str().expect("utf-8"),
+            &opts,
+        );
+        assert!(result.expect("valid copy should return Ok"), "valid copy should return Ok(true)");
+        assert!(target_dir.path().join("in.txt").exists(), "copy must create target file");
+        assert!(src.exists(), "copy must not remove source file");
     }
 
 }

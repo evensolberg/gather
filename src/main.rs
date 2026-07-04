@@ -1,7 +1,7 @@
 mod cli;
 mod utils;
 
-use std::path::Path;
+use rayon::prelude::*;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /// This is where the magic happens.
@@ -35,13 +35,15 @@ fn run() -> anyhow::Result<()> {
         show_detail_info: !cli_args.get_flag("detail-off"),
     };
     let print_summary = cli_args.get_flag("summary");
+    let serial = cli_args.get_flag("serial");
     log::debug!(
-        "dry_run: {}, move_files: {}, stop_on_error: {}, show_detail_info: {}, print_summary: {}",
+        "dry_run: {}, move_files: {}, stop_on_error: {}, show_detail_info: {}, print_summary: {}, serial: {}",
         opts.dry_run,
         opts.move_files,
         opts.stop_on_error,
         opts.show_detail_info,
-        print_summary
+        print_summary,
+        serial,
     );
 
     if opts.dry_run {
@@ -58,38 +60,52 @@ fn run() -> anyhow::Result<()> {
         utils::validate_sources(&sources)?;
     }
 
-    let mut total_file_count: usize = 0;
-    let mut processed_file_count: usize = 0;
-    let mut skipped_file_count: usize = 0;
-
-    // Gather files
-    for source in sources.iter().copied() {
-        total_file_count += 1;
-
-        // Path::file_name() returns None when the last path component is ".."
-        // (Component::ParentDir, e.g. "foo/..") or the path is the root "/"
-        // (Component::RootDir) — neither has a usable target filename.
-        // In soft-error mode validate_sources is not called, so this guard is
-        // the sole protection; in stop_on_error mode validate_sources will
-        // have already rejected such paths (e.g. as not found, not a regular
-        // file, or inaccessible), making the bail! branch a defensive fallback.
-        let Some(file_name) = Path::new(source).file_name() else {
-            if opts.stop_on_error {
-                anyhow::bail!("Invalid filename in path: {source}. Halting.");
+    // Process files in parallel by default, serially when --serial/-1 is set.
+    //
+    // Serial path (including dry-run):
+    //   A plain for-loop with ? inside so --stop-on-error short-circuits on the
+    //   first error without touching remaining files.  Dry-run always runs serially
+    //   so preview lines appear in input order, which matters for auditing an
+    //   ordered file list.
+    //
+    // Parallel path:
+    //   par_iter().collect() dispatches all workers concurrently.  collect::<Vec<Result>>
+    //   is eager and non-short-circuiting, so --stop-on-error cannot abort in-flight
+    //   operations; it surfaces the first Err after all workers complete.  For true
+    //   halt-on-first-error semantics combine --serial with --stop.
+    // Every source produces exactly one outcome, so total is known up front.
+    let total_file_count = sources.len();
+    let (processed_file_count, skipped_file_count) = if serial || opts.dry_run {
+        let mut processed = 0;
+        let mut skipped = 0;
+        for &source in &sources {
+            if utils::process_source(source, target_dir, &opts)? {
+                processed += 1;
+            } else {
+                skipped += 1;
             }
-            log::warn!("Invalid filename in path: {source}. Continuing.");
-            skipped_file_count += 1;
-            continue;
-        };
-
-        let new_filename = Path::new(target_dir).join(file_name);
-
-        if utils::process_file(source, &new_filename, &opts)? {
-            processed_file_count += 1;
-        } else {
-            skipped_file_count += 1;
         }
-    } // for source
+        (processed, skipped)
+    } else {
+        let results: Vec<anyhow::Result<bool>> = sources
+            .par_iter()
+            .map(|&source| utils::process_source(source, target_dir, &opts))
+            .collect();
+        let mut processed = 0;
+        let mut skipped = 0;
+        // Drain results in order. On --stop-on-error the first Err propagates
+        // via ? and exits run() before the summary block is reached, so any
+        // remaining Ok(false) entries are never counted — an accepted artifact
+        // of parallel dispatch (all workers already completed by this point).
+        for result in results {
+            if result? {
+                processed += 1;
+            } else {
+                skipped += 1;
+            }
+        }
+        (processed, skipped)
+    };
 
     if print_summary {
         // Write directly to stdout so the summary is never silenced by -q/--quiet.
