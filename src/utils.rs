@@ -146,12 +146,16 @@ pub fn process_file(
     };
 
     if opts.dry_run {
-        // Guard against inaccessible sources: a file absent or unreadable at
-        // dry-run time would not be copied in a real run either (TOCTOU
-        // notwithstanding).  Use try_exists() so permission errors are not
-        // silently misreported as "not found".  Use println! so the notice is
-        // always visible, matching the arrow line which also bypasses the logger
-        // (-q does not suppress it).
+        // Best-effort guard for the dry-run preview.  try_exists() checks
+        // whether the filesystem can retrieve the entry's metadata (a stat
+        // call).  Ok(false) means the entry is absent; Err means even the
+        // stat failed (e.g. search permission denied on the parent directory).
+        // Note: try_exists() returning Ok(true) does NOT guarantee the file is
+        // readable — a file that passes here could still fail to be copied if
+        // read permission is denied.  Dry-run is inherently best-effort; the
+        // real copy will surface any such permission error.  Use println! so
+        // the notice is always visible, matching the arrow lines which also
+        // bypass the logger (-q does not suppress them).
         match std::path::Path::new(source).try_exists() {
             Ok(false) => {
                 println!("  {source} (not found — would be skipped)");
@@ -161,7 +165,7 @@ pub fn process_file(
                 println!("  {source} (not accessible — would be skipped)");
                 return Ok(false);
             }
-            Ok(true) => {} // file exists — show the preview arrow below
+            Ok(true) => {} // metadata accessible — show the preview arrow below
         }
         println!("  {source} {arrow} {target_display}");
         return Ok(true);
