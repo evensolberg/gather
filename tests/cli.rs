@@ -542,3 +542,228 @@ stderr: {stderr}",
         "dry-run must not copy any files"
     );
 }
+
+// -------------------------------------------------------------------
+// gtr-1a5 — --serial / -1 end-to-end integration tests
+// -------------------------------------------------------------------
+
+/// `--serial` with a single file must copy it to the target directory.
+/// Smoke test: confirms the flag is accepted and processing runs.
+#[test]
+fn serial_copy_single_file() {
+    let (_guard, src, dst) = setup_tmp("serial_single");
+    run_gather(&["--serial", src.to_str().unwrap(), "-t", dst.to_str().unwrap()]);
+    assert!(
+        dst.join("sample.txt").exists(),
+        "--serial must copy the file to the target directory"
+    );
+    assert_eq!(
+        fs::read(dst.join("sample.txt")).unwrap(),
+        b"hello",
+        "--serial must preserve file content"
+    );
+}
+
+/// `-1` (the short alias for `--serial`) must behave identically.
+#[test]
+fn serial_short_flag_copies_file() {
+    let (_guard, src, dst) = setup_tmp("serial_short");
+    run_gather(&["-1", src.to_str().unwrap(), "-t", dst.to_str().unwrap()]);
+    assert!(
+        dst.join("sample.txt").exists(),
+        "-1 (--serial short alias) must copy the file to the target directory"
+    );
+    assert_eq!(
+        fs::read(dst.join("sample.txt")).unwrap(),
+        b"hello",
+        "-1 must preserve file content identically to --serial"
+    );
+}
+
+/// `--serial` with multiple source files must copy all of them.
+#[test]
+fn serial_copy_multiple_files() {
+    let pid = std::process::id();
+    let root = std::env::temp_dir().join(format!("gather_test_serial_multi_{pid}"));
+    let dst = root.join("dst");
+    fs::create_dir_all(&dst).expect("create dst dir");
+    let _guard = TempGuard(root.clone());
+    let a = root.join("alpha.txt");
+    let b = root.join("beta.txt");
+    let c = root.join("gamma.txt");
+    fs::write(&a, b"aaa").unwrap();
+    fs::write(&b, b"bbb").unwrap();
+    fs::write(&c, b"ccc").unwrap();
+
+    run_gather(&[
+        "--serial",
+        a.to_str().unwrap(),
+        b.to_str().unwrap(),
+        c.to_str().unwrap(),
+        "-t",
+        dst.to_str().unwrap(),
+    ]);
+
+    assert!(dst.join("alpha.txt").exists(), "alpha.txt must be copied");
+    assert!(dst.join("beta.txt").exists(), "beta.txt must be copied");
+    assert!(dst.join("gamma.txt").exists(), "gamma.txt must be copied");
+}
+
+/// `--serial --move` must move the file (source gone, target present).
+#[test]
+fn serial_move_removes_source() {
+    let (_guard, src, dst) = setup_tmp("serial_move");
+    let src_str = src.to_str().unwrap();
+    run_gather(&[
+        "--serial",
+        "--move",
+        src_str,
+        "-t",
+        dst.to_str().unwrap(),
+    ]);
+    assert!(
+        dst.join("sample.txt").exists(),
+        "--serial --move must create the file at the target"
+    );
+    assert!(
+        !src.exists(),
+        "--serial --move must remove the source file"
+    );
+}
+
+/// `--serial` with two sources sharing a basename must preserve both files:
+/// the second must be renamed to `sample_1.txt`, not overwrite the first.
+/// This verifies the serial loop's in-order determinism — the first source
+/// wins the base name and the second is suffixed.
+#[test]
+fn serial_collision_preserves_both_files() {
+    let pid = std::process::id();
+    let root = std::env::temp_dir().join(format!("gather_test_serial_coll_{pid}"));
+    let src_a = root.join("dir_a");
+    let src_b = root.join("dir_b");
+    let dst = root.join("dst");
+    fs::create_dir_all(&src_a).unwrap();
+    fs::create_dir_all(&src_b).unwrap();
+    fs::create_dir_all(&dst).unwrap();
+    let _guard = TempGuard(root.clone());
+    fs::write(src_a.join("sample.txt"), b"from-a").unwrap();
+    fs::write(src_b.join("sample.txt"), b"from-b").unwrap();
+
+    run_gather(&[
+        "--serial",
+        src_a.join("sample.txt").to_str().unwrap(),
+        src_b.join("sample.txt").to_str().unwrap(),
+        "-t",
+        dst.to_str().unwrap(),
+    ]);
+
+    let first = fs::read(dst.join("sample.txt")).expect("sample.txt must exist");
+    assert_eq!(first, b"from-a", "first source must keep the base name");
+
+    let renamed = dst.join("sample_1.txt");
+    assert!(renamed.exists(), "second source must be renamed to sample_1.txt");
+    let second = fs::read(&renamed).unwrap();
+    assert_eq!(second, b"from-b", "second source content must be preserved");
+}
+
+/// `--serial -p` (with print-summary) must count processed files correctly.
+#[test]
+fn serial_print_summary_counts_correctly() {
+    let (_guard, src, dst) = setup_tmp("serial_summary");
+    let stdout = run_gather(&[
+        "--serial",
+        "-p",
+        src.to_str().unwrap(),
+        "-t",
+        dst.to_str().unwrap(),
+    ]);
+    assert!(
+        stdout.contains("Total files examined:"),
+        "expected summary header in stdout; got:\n{stdout}"
+    );
+    // Extract the "Files copied:" line and parse the numeric count from the
+    // last whitespace-delimited token.  Parsing the number (rather than
+    // asserting on exact spacing) keeps this test focused on behavioural
+    // correctness and decouples it from cosmetic formatting changes.
+    let copied_line = stdout
+        .lines()
+        .find(|l| l.contains("Files copied:"))
+        .expect("expected a 'Files copied:' line in summary output");
+    let count: u64 = copied_line
+        .split_whitespace()
+        .next_back()
+        .and_then(|s| s.parse().ok())
+        .expect("expected a numeric count at the end of the 'Files copied:' line");
+    assert_eq!(count, 1, "expected Files copied count to be 1; got {count}");
+}
+
+/// `--serial --stop-on-error` with a missing source file must exit 1 and copy
+/// no files.  With `--stop-on-error` and no `--dry-run`, `validate_sources`
+/// runs a pre-flight check over the whole list before any I/O; the missing
+/// path causes the process to exit before the processing loop runs.
+#[test]
+fn serial_stop_on_error_aborts_on_missing_source() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let dst = tmp.path().join("dst");
+    fs::create_dir_all(&dst).expect("create dst dir");
+
+    let real = tmp.path().join("real.txt");
+    fs::write(&real, b"data").expect("write real file");
+    let missing = tmp.path().join("missing.txt"); // intentionally never created
+
+    let output = Command::new(GATHER)
+        .args([
+            "--serial",
+            "--stop-on-error",
+            real.to_str().unwrap(),
+            missing.to_str().unwrap(),
+            "-t",
+            dst.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run gather");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "--serial --stop-on-error must exit 1 when a source is missing; stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains(missing.to_str().unwrap()),
+        "expected the missing path in stderr; got:\n{stderr}"
+    );
+    // Pre-flight aborts before any I/O — the real file must not be copied.
+    assert!(
+        !dst.join("real.txt").exists(),
+        "no file must be copied when pre-flight aborts"
+    );
+    assert!(
+        stdout.is_empty(),
+        "stdout must be empty on pre-flight abort; got:\n{stdout}"
+    );
+}
+
+/// `--serial --dry-run` must show the copy-preview banner and per-file lines,
+/// and must not create any files.  Both flags share the `serial || dry_run`
+/// branch in `main.rs`; combining them guards that branch against refactoring.
+#[test]
+fn serial_dry_run_shows_preview_and_creates_no_files() {
+    let (_guard, src, dst) = setup_tmp("serial_dry");
+    let src_str = src.to_str().unwrap();
+    let dst_str = dst.to_str().unwrap();
+    let stdout = run_gather(&["--serial", "--dry-run", src_str, "-t", dst_str]);
+    assert!(
+        stdout.contains("Starting dry-run."),
+        "expected dry-run banner with --serial --dry-run; got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("==>") && stdout.contains(src_str) && stdout.contains(dst_str),
+        "expected file preview '{src_str} ==> {dst_str}' with --serial --dry-run; got:\n{stdout}"
+    );
+    assert!(
+        !dst.join("sample.txt").exists(),
+        "--serial --dry-run must not create any files"
+    );
+}
