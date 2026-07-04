@@ -63,64 +63,76 @@ pub struct ProcessOptions {
     pub show_detail_info: bool,
 }
 
-/// Pre-flight existence check: report all missing source paths before processing.
+/// Pre-flight existence check: verify all source paths can be processed.
 ///
-/// Iterates over `sources` and collects every path that does not exist on disk.
-/// When `stop_on_error` is `true` and `dry_run` is `false`, returns an error
-/// listing all missing paths so the user sees the complete picture in one
-/// message before any files are moved or copied.  In all other cases the
-/// function returns `Ok(())` without emitting any output; per-file feedback for
-/// missing sources is handled by `process_file` when the copy or move fails.
+/// Iterates over `sources` and checks each path for: (1) a valid filename
+/// component, (2) filesystem existence via `try_exists()`.  When
+/// `stop_on_error` is `true` and `dry_run` is `false`, returns an error
+/// listing every problematic path so the user sees the complete picture in
+/// one message before any files are moved or copied.  In all other cases the
+/// function returns `Ok(())` without emitting any output; per-file feedback
+/// is handled by `process_file`.
+///
+/// OS-level errors (e.g. permission denied) are collected into the same batch
+/// message rather than causing an immediate return, so all unreachable paths
+/// are reported together.
 ///
 /// # Returns
 ///
-/// - `Ok(())` when all paths exist, or when the caller has opted out of hard
-///   errors (`stop_on_error = false`, or `dry_run = true`).
-/// - `Err(...)` when one or more paths are absent and `stop_on_error` is `true`
-///   and `dry_run` is `false`.
+/// - `Ok(())` when all paths are valid and exist, or when the caller has opted
+///   out of hard errors (`stop_on_error = false`, or `dry_run = true`).
+/// - `Err(...)` when one or more paths are problematic and `stop_on_error` is
+///   `true` and `dry_run` is `false`.
 pub fn validate_sources(sources: &[&str], opts: &ProcessOptions) -> anyhow::Result<()> {
-    // Only meaningful in hard-error, non-dry-run mode.  The caller guards this,
-    // but the check is kept here too so the function is self-contained for tests.
+    // Only meaningful in hard-error, non-dry-run mode; the function is
+    // self-contained so tests can call it directly with any option combination.
     if !opts.stop_on_error || opts.dry_run {
         return Ok(());
     }
 
-    // Use try_exists() rather than exists() so that OS errors such as "permission
-    // denied" surface as immediate hard errors instead of being silently treated
-    // as "not found".  exists() returns false for *any* metadata failure; only
-    // Ok(false) from try_exists() means the file is genuinely absent.
+    // Collect every problematic path so the user sees the full picture before
+    // any files are moved or copied.  OS errors are included inline rather than
+    // causing an immediate return — the message still lists all other issues.
     //
     // Note: a TOCTOU race exists between this check and the actual fs::copy /
     // fs::rename in process_file.  A file deleted between the two points will
     // produce a false-clean pre-flight followed by a mid-run copy error.  This
     // is inherent in any check-then-act design and is acceptable for the
     // single-user interactive use case this tool targets.
-    let mut missing: Vec<&str> = Vec::new();
+    let mut problems: Vec<String> = Vec::new();
     for &s in sources {
+        // Paths with no filename component (e.g. ending in '/' or '..') are
+        // invalid regardless of existence; report them before stat'ing.
+        if std::path::Path::new(s).file_name().is_none() {
+            problems.push(format!("{s} (no filename component)"));
+            continue;
+        }
+        // Use try_exists() so that Ok(false) means "genuinely absent" while
+        // Err means "OS error" — exists() would return false for both cases,
+        // losing the distinction.
         match std::path::Path::new(s).try_exists() {
-            Ok(true) => {}  // file exists — nothing to do
-            Ok(false) => missing.push(s),
+            Ok(true) => {}  // file accessible — nothing to do
+            Ok(false) => problems.push(s.to_string()),
             Err(err) => {
-                // An OS-level error while probing existence (e.g. permission
-                // denied) will almost certainly prevent the copy/move from
-                // succeeding too; surface it immediately with context.
-                return Err(err)
-                    .with_context(|| format!("Unable to access source file '{s}'"));
+                // OS-level error (e.g. permission denied): add to the problem
+                // list rather than returning early so every unreachable path
+                // appears in one batch message.
+                problems.push(format!("{s} ({err})"));
             }
         }
     }
 
-    if missing.is_empty() {
+    if problems.is_empty() {
         return Ok(());
     }
 
-    // Include every missing path in the error message so it appears on stderr
-    // via the `eprintln!` in main(), giving the user the full picture before any
-    // files are moved or copied.
+    // Include every problem path in the error message so it appears on stderr
+    // via the `eprintln!` in main(), giving the user the full picture before
+    // any files are moved or copied.
     anyhow::bail!(
         "{} source file(s) not found:\n  {}\nHalting.",
-        missing.len(),
-        missing.join("\n  ")
+        problems.len(),
+        problems.join("\n  ")
     );
 }
 
@@ -146,26 +158,26 @@ pub fn process_file(
     };
 
     if opts.dry_run {
-        // Best-effort guard for the dry-run preview.  try_exists() checks
-        // whether the filesystem can retrieve the entry's metadata (a stat
-        // call).  Ok(false) means the entry is absent; Err means even the
-        // stat failed (e.g. search permission denied on the parent directory).
-        // Note: try_exists() returning Ok(true) does NOT guarantee the file is
-        // readable — a file that passes here could still fail to be copied if
-        // read permission is denied.  Dry-run is inherently best-effort; the
-        // real copy will surface any such permission error.  Use println! so
-        // the notice is always visible, matching the arrow lines which also
-        // bypass the logger (-q does not suppress them).
-        match std::path::Path::new(source).try_exists() {
-            Ok(false) => {
+        // Use metadata() to check existence, accessibility, and file type in
+        // one stat call.  metadata() follows symlinks (matching fs::copy
+        // behaviour).  Dry-run is inherently best-effort — a file that passes
+        // here could still fail on the real run (e.g. no read permission) — but
+        // this covers the common cases the user needs to know about up front.
+        // Use println! so notices are always visible regardless of -q/--quiet.
+        match std::fs::metadata(source) {
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                 println!("  {source} (not found — would be skipped)");
                 return Ok(false);
             }
-            Err(_) => {
-                println!("  {source} (not accessible — would be skipped)");
+            Err(err) => {
+                println!("  {source} (not accessible: {err} — would be skipped)");
                 return Ok(false);
             }
-            Ok(true) => {} // metadata accessible — show the preview arrow below
+            Ok(meta) if !meta.is_file() => {
+                println!("  {source} (not a regular file — would be skipped)");
+                return Ok(false);
+            }
+            Ok(_) => {} // regular file — show the preview arrow below
         }
         println!("  {source} {arrow} {target_display}");
         return Ok(true);
@@ -473,15 +485,18 @@ mod tests {
 
     #[test]
     fn validate_sources_empty_slice_returns_ok() {
+        // Use stop_on_error=true so the function enters the scanning loop
+        // (rather than hitting the early-return guard) and proves that an
+        // empty slice produces Ok(()) through the loop body.
         let opts = ProcessOptions {
             dry_run: false,
             move_files: false,
-            stop_on_error: false,
+            stop_on_error: true,
             show_detail_info: false,
         };
         assert!(
             validate_sources(&[], &opts).is_ok(),
-            "empty source list should return Ok"
+            "empty source list should return Ok even with stop_on_error=true"
         );
     }
 
