@@ -121,7 +121,7 @@ fn dry_run_with_print_summary_shows_summary() {
     ]);
     assert!(
         stdout.contains("Total files examined:"),
-        "expected summary in stdout for -n -p combined, got:\n{stdout}"
+        "expected summary in stdout for -r -p combined, got:\n{stdout}"
     );
 }
 
@@ -137,7 +137,7 @@ fn dry_run_shows_banner() {
     let stdout = run_gather(&["-r", src.to_str().unwrap(), "-t", dst.to_str().unwrap()]);
     assert!(
         stdout.contains("Starting dry-run."),
-        "expected dry-run banner in stdout for -n, got:\n{stdout}"
+        "expected dry-run banner in stdout for -r, got:\n{stdout}"
     );
 }
 
@@ -152,7 +152,7 @@ fn dry_run_shows_file_preview() {
     let stdout = run_gather(&["-r", src_str, "-t", dst_str]);
     assert!(
         stdout.contains("==>") && stdout.contains(src_str) && stdout.contains(dst_str),
-        "expected copy-preview '{src_str} ==> {dst_str}' in stdout for -n, got:\n{stdout}"
+        "expected copy-preview '{src_str} ==> {dst_str}' in stdout for -r, got:\n{stdout}"
     );
 }
 
@@ -167,14 +167,14 @@ fn dry_run_move_shows_move_preview() {
     let stdout = run_gather(&["-r", "--move", src_str, "-t", dst_str]);
     assert!(
         stdout.contains("-->") && stdout.contains(src_str) && stdout.contains(dst_str),
-        "expected move-preview '{src_str} --> {dst_str}' in stdout for -n --move, got:\n{stdout}"
+        "expected move-preview '{src_str} --> {dst_str}' in stdout for -r --move, got:\n{stdout}"
     );
 }
 
 /// `-q` combined with `--dry-run` must STILL show the dry-run banner and
 /// per-file preview on stdout.  Before the fix the `log::info!` calls in the
 /// dry-run paths are silenced by `LevelFilter::Error`, producing zero output
-/// and making `-n -q` completely useless.
+/// and making `-r -q` completely useless.
 #[test]
 fn quiet_and_dry_run_still_shows_preview() {
     let (_guard, src, dst) = setup_tmp("dry_q");
@@ -183,11 +183,11 @@ fn quiet_and_dry_run_still_shows_preview() {
     let stdout = run_gather(&["-r", "-q", src_str, "-t", dst_str]);
     assert!(
         stdout.contains("Starting dry-run."),
-        "expected dry-run banner when -n -q combined, got:\n{stdout}"
+        "expected dry-run banner when -r -q combined, got:\n{stdout}"
     );
     assert!(
         stdout.contains("==>") && stdout.contains(src_str) && stdout.contains(dst_str),
-        "expected file preview '{src_str} ==> {dst_str}' when -n -q combined, got:\n{stdout}"
+        "expected file preview '{src_str} ==> {dst_str}' when -r -q combined, got:\n{stdout}"
     );
 }
 
@@ -201,11 +201,11 @@ fn quiet_and_dry_run_move_still_shows_preview() {
     let stdout = run_gather(&["-r", "-q", "--move", src_str, "-t", dst_str]);
     assert!(
         stdout.contains("Starting dry-run."),
-        "expected dry-run banner when -n -q --move combined, got:\n{stdout}"
+        "expected dry-run banner when -r -q --move combined, got:\n{stdout}"
     );
     assert!(
         stdout.contains("-->") && stdout.contains(src_str) && stdout.contains(dst_str),
-        "expected move preview '{src_str} --> {dst_str}' when -n -q --move combined, got:\n{stdout}"
+        "expected move preview '{src_str} --> {dst_str}' when -r -q --move combined, got:\n{stdout}"
     );
 }
 
