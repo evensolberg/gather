@@ -113,7 +113,7 @@ fn quiet_without_print_summary_suppresses_output() {
 fn dry_run_with_print_summary_shows_summary() {
     let (_guard, src, dst) = setup_tmp("dry_p");
     let stdout = run_gather(&[
-        "-n",
+        "-r",
         "-p",
         src.to_str().unwrap(),
         "-t",
@@ -134,7 +134,7 @@ fn dry_run_with_print_summary_shows_summary() {
 #[test]
 fn dry_run_shows_banner() {
     let (_guard, src, dst) = setup_tmp("dry_banner");
-    let stdout = run_gather(&["-n", src.to_str().unwrap(), "-t", dst.to_str().unwrap()]);
+    let stdout = run_gather(&["-r", src.to_str().unwrap(), "-t", dst.to_str().unwrap()]);
     assert!(
         stdout.contains("Starting dry-run."),
         "expected dry-run banner in stdout for -n, got:\n{stdout}"
@@ -149,7 +149,7 @@ fn dry_run_shows_file_preview() {
     let (_guard, src, dst) = setup_tmp("dry_file");
     let src_str = src.to_str().unwrap();
     let dst_str = dst.to_str().unwrap();
-    let stdout = run_gather(&["-n", src_str, "-t", dst_str]);
+    let stdout = run_gather(&["-r", src_str, "-t", dst_str]);
     assert!(
         stdout.contains("==>") && stdout.contains(src_str) && stdout.contains(dst_str),
         "expected copy-preview '{src_str} ==> {dst_str}' in stdout for -n, got:\n{stdout}"
@@ -164,7 +164,7 @@ fn dry_run_move_shows_move_preview() {
     let (_guard, src, dst) = setup_tmp("dry_move");
     let src_str = src.to_str().unwrap();
     let dst_str = dst.to_str().unwrap();
-    let stdout = run_gather(&["-n", "--move", src_str, "-t", dst_str]);
+    let stdout = run_gather(&["-r", "--move", src_str, "-t", dst_str]);
     assert!(
         stdout.contains("-->") && stdout.contains(src_str) && stdout.contains(dst_str),
         "expected move-preview '{src_str} --> {dst_str}' in stdout for -n --move, got:\n{stdout}"
@@ -180,7 +180,7 @@ fn quiet_and_dry_run_still_shows_preview() {
     let (_guard, src, dst) = setup_tmp("dry_q");
     let src_str = src.to_str().unwrap();
     let dst_str = dst.to_str().unwrap();
-    let stdout = run_gather(&["-n", "-q", src_str, "-t", dst_str]);
+    let stdout = run_gather(&["-r", "-q", src_str, "-t", dst_str]);
     assert!(
         stdout.contains("Starting dry-run."),
         "expected dry-run banner when -n -q combined, got:\n{stdout}"
@@ -198,7 +198,7 @@ fn quiet_and_dry_run_move_still_shows_preview() {
     let (_guard, src, dst) = setup_tmp("dry_qm");
     let src_str = src.to_str().unwrap();
     let dst_str = dst.to_str().unwrap();
-    let stdout = run_gather(&["-n", "-q", "--move", src_str, "-t", dst_str]);
+    let stdout = run_gather(&["-r", "-q", "--move", src_str, "-t", dst_str]);
     assert!(
         stdout.contains("Starting dry-run."),
         "expected dry-run banner when -n -q --move combined, got:\n{stdout}"
@@ -552,7 +552,12 @@ stderr: {stderr}",
 #[test]
 fn serial_copy_single_file() {
     let (_guard, src, dst) = setup_tmp("serial_single");
-    run_gather(&["--serial", src.to_str().unwrap(), "-t", dst.to_str().unwrap()]);
+    run_gather(&[
+        "--serial",
+        src.to_str().unwrap(),
+        "-t",
+        dst.to_str().unwrap(),
+    ]);
     assert!(
         dst.join("sample.txt").exists(),
         "--serial must copy the file to the target directory"
@@ -614,21 +619,12 @@ fn serial_copy_multiple_files() {
 fn serial_move_removes_source() {
     let (_guard, src, dst) = setup_tmp("serial_move");
     let src_str = src.to_str().unwrap();
-    run_gather(&[
-        "--serial",
-        "--move",
-        src_str,
-        "-t",
-        dst.to_str().unwrap(),
-    ]);
+    run_gather(&["--serial", "--move", src_str, "-t", dst.to_str().unwrap()]);
     assert!(
         dst.join("sample.txt").exists(),
         "--serial --move must create the file at the target"
     );
-    assert!(
-        !src.exists(),
-        "--serial --move must remove the source file"
-    );
+    assert!(!src.exists(), "--serial --move must remove the source file");
 }
 
 /// `--serial` with two sources sharing a basename must preserve both files:
@@ -661,7 +657,10 @@ fn serial_collision_preserves_both_files() {
     assert_eq!(first, b"from-a", "first source must keep the base name");
 
     let renamed = dst.join("sample_1.txt");
-    assert!(renamed.exists(), "second source must be renamed to sample_1.txt");
+    assert!(
+        renamed.exists(),
+        "second source must be renamed to sample_1.txt"
+    );
     let second = fs::read(&renamed).unwrap();
     assert_eq!(second, b"from-b", "second source content must be preserved");
 }

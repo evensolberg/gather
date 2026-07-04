@@ -1,22 +1,25 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
-## [0.6.0] - 2026-07-04
+## [unreleased]
+
+### Bug Fixes
+
+- Keep both files on same-basename collision at target (#86)
 
 ### Features
 
-- Collision avoidance: when two sources share a basename, the second is
-  renamed to `<stem>_1.<ext>` rather than silently overwriting the first
-  (#86)
-- Content deduplication: if colliding files are byte-for-byte identical,
-  the duplicate is skipped in copy mode or the redundant source is
-  removed in move mode — no unnecessary `_1` copy is created (#87)
-- Summary label updated from "Files skipped due to errors" to
-  "Files skipped (errors or duplicates)" to reflect intentional skips
+- Add pre-flight source-file existence check (gtr-wek) (#84)
+- Parallelize file operations with rayon (gtr-4ee) (#85)
+- Skip identical duplicates on same-basename collision (#87)
+
+### Miscellaneous Tasks
+
+- Bump version to 0.6.0
 
 ### Testing
 
-- Full end-to-end integration tests for `--serial` / `-1` flag (#88)
+- Add --serial / -1 end-to-end integration tests (gtr-1a5) (#88)
 
 ## [0.4.0] - 2026-07-03
 

@@ -44,7 +44,7 @@ fn build_command() -> Command {
         )
         .arg( // Dry-run
             Arg::new("dry-run")
-                .short('n')
+                .short('r')
                 .long("dry-run")
                 .help("Iterate through the files and produce output without actually processing anything.")
                 .action(ArgAction::SetTrue)
