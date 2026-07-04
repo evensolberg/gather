@@ -91,8 +91,9 @@ pub fn validate_sources(sources: &[&str], opts: &ProcessOptions) -> anyhow::Resu
     }
 
     // Collect every problematic path so the user sees the full picture before
-    // any files are moved or copied.  OS errors are included inline rather than
-    // causing an immediate return — the message still lists all other issues.
+    // any files are moved or copied.  Use metadata() for a single syscall that
+    // checks existence, accessibility, and file type together — the same check
+    // that process_file uses so pre-flight and real-run are consistent.
     //
     // Note: a TOCTOU race exists between this check and the actual fs::copy /
     // fs::rename in process_file.  A file deleted between the two points will
@@ -101,24 +102,22 @@ pub fn validate_sources(sources: &[&str], opts: &ProcessOptions) -> anyhow::Resu
     // single-user interactive use case this tool targets.
     let mut problems: Vec<String> = Vec::new();
     for &s in sources {
-        // Paths with no filename component (e.g. ending in '/' or '..') are
-        // invalid regardless of existence; report them before stat'ing.
-        if std::path::Path::new(s).file_name().is_none() {
-            problems.push(format!("{s} (no filename component)"));
-            continue;
-        }
-        // Use try_exists() so that Ok(false) means "genuinely absent" while
-        // Err means "OS error" — exists() would return false for both cases,
-        // losing the distinction.
-        match std::path::Path::new(s).try_exists() {
-            Ok(true) => {}  // file accessible — nothing to do
-            Ok(false) => problems.push(s.to_string()),
+        // metadata() follows symlinks (matching fs::copy behaviour).
+        // NotFound → genuinely absent; other Err → OS error (e.g. permission
+        // denied); Ok + !is_file() → exists but is a directory, pipe, etc.
+        match std::fs::metadata(s) {
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                problems.push(s.to_string());
+            }
             Err(err) => {
-                // OS-level error (e.g. permission denied): add to the problem
-                // list rather than returning early so every unreachable path
-                // appears in one batch message.
+                // OS-level error: add inline so the batch message shows all
+                // issues rather than stopping at the first one.
                 problems.push(format!("{s} ({err})"));
             }
+            Ok(meta) if !meta.is_file() => {
+                problems.push(format!("{s} (not a regular file)"));
+            }
+            Ok(_) => {} // regular file — nothing to do
         }
     }
 
@@ -130,7 +129,7 @@ pub fn validate_sources(sources: &[&str], opts: &ProcessOptions) -> anyhow::Resu
     // via the `eprintln!` in main(), giving the user the full picture before
     // any files are moved or copied.
     anyhow::bail!(
-        "{} source file(s) not found:\n  {}\nHalting.",
+        "{} source path(s) cannot be processed:\n  {}\nHalting.",
         problems.len(),
         problems.join("\n  ")
     );
@@ -181,6 +180,23 @@ pub fn process_file(
         }
         println!("  {source} {arrow} {target_display}");
         return Ok(true);
+    }
+
+    // Guard: source must be a regular file.  Without this, --move mode would
+    // silently succeed for a directory on Unix (fs::rename is directory-aware),
+    // contradicting the dry-run "(not a regular file — would be skipped)"
+    // notice and the tool's file-only semantics.  fs::copy returns EISDIR for
+    // directories, but being consistent across copy and move avoids surprises.
+    // If metadata() itself fails (source absent or inaccessible), we fall
+    // through and let fs::copy / fs::rename surface the OS error below.
+    if let Ok(meta) = std::fs::metadata(source) {
+        if !meta.is_file() {
+            if opts.stop_on_error {
+                anyhow::bail!("'{source}' is not a regular file");
+            }
+            log::warn!("'{source}' is not a regular file. Skipping.");
+            return Ok(false);
+        }
     }
 
     log::debug!("{verb} {source} to {target_display}");
@@ -281,6 +297,72 @@ mod tests {
     // ---------------------------------------------------------------------------
     // process_file
     // ---------------------------------------------------------------------------
+
+    #[test]
+    fn process_file_directory_source_soft_error_returns_ok_false() {
+        // A directory passed as a source must be rejected with Ok(false) rather
+        // than silently moved (fs::rename on a directory succeeds on Unix and
+        // would move the whole tree, contradicting the dry-run preview).
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let src_dir = tempfile::tempdir().expect("create source dir");
+        let tgt = dir.path().join("out.txt");
+        let opts = ProcessOptions {
+            dry_run: false,
+            move_files: false,
+            stop_on_error: false,
+            show_detail_info: false,
+        };
+        let result = process_file(src_dir.path().to_str().expect("utf-8"), &tgt, &opts);
+        assert!(
+            !result.expect("should return Ok, not Err, in soft-error mode"),
+            "directory source (copy, soft-error) should return Ok(false)"
+        );
+        assert!(!tgt.exists(), "no target should be created for a directory source");
+    }
+
+    #[test]
+    fn process_file_directory_source_move_soft_error_returns_ok_false() {
+        // Move mode is the critical case: fs::rename on a directory silently
+        // succeeds on Unix — without the is_file() guard the entire directory
+        // would be relocated to the target, which is never what the user wants.
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let src_dir = tempfile::tempdir().expect("create source dir");
+        let tgt = dir.path().join("out.txt");
+        let opts = ProcessOptions {
+            dry_run: false,
+            move_files: true,
+            stop_on_error: false,
+            show_detail_info: false,
+        };
+        let result = process_file(src_dir.path().to_str().expect("utf-8"), &tgt, &opts);
+        assert!(
+            !result.expect("should return Ok, not Err, in soft-error mode"),
+            "directory source (move, soft-error) should return Ok(false)"
+        );
+        assert!(
+            src_dir.path().exists(),
+            "source directory must NOT be moved/renamed"
+        );
+    }
+
+    #[test]
+    fn process_file_directory_source_hard_error_returns_err() {
+        // With stop_on_error the is_file() guard must bail rather than returning Ok(false).
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let src_dir = tempfile::tempdir().expect("create source dir");
+        let tgt = dir.path().join("out.txt");
+        let opts = ProcessOptions {
+            dry_run: false,
+            move_files: false,
+            stop_on_error: true,
+            show_detail_info: false,
+        };
+        let result = process_file(src_dir.path().to_str().expect("utf-8"), &tgt, &opts);
+        assert!(
+            result.is_err(),
+            "directory source + stop_on_error=true should return Err"
+        );
+    }
 
     #[test]
     fn process_file_dry_run_missing_source_returns_ok_false_without_creating_file() {
@@ -553,8 +635,30 @@ mod tests {
         );
         let msg = format!("{}", result.unwrap_err());
         assert!(
-            msg.contains("2 source file(s) not found"),
-            "error message should contain '2 source file(s) not found'; got: {msg}"
+            msg.contains("2 source path(s) cannot be processed"),
+            "error message should contain '2 source path(s) cannot be processed'; got: {msg}"
+        );
+    }
+
+    #[test]
+    fn validate_sources_directory_source_reports_not_regular_file() {
+        // A directory that exists should be rejected by the pre-flight check with
+        // "(not a regular file)" — not silently passed as "found" — so the user
+        // sees the problem before any other files are moved or copied.
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let sources = [dir.path().to_str().expect("utf-8")];
+        let opts = ProcessOptions {
+            dry_run: false,
+            move_files: false,
+            stop_on_error: true,
+            show_detail_info: false,
+        };
+        let result = validate_sources(&sources, &opts);
+        assert!(result.is_err(), "a directory source + stop_on_error=true should return Err");
+        let msg = format!("{}", result.unwrap_err());
+        assert!(
+            msg.contains("not a regular file"),
+            "error message should mention 'not a regular file'; got: {msg}"
         );
     }
 
