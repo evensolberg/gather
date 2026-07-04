@@ -681,23 +681,25 @@ fn serial_print_summary_counts_correctly() {
         stdout.contains("Total files examined:"),
         "expected summary header in stdout; got:\n{stdout}"
     );
-    // Extract the "Files copied:" line and check its trailing count is exactly
-    // "    1" (right-aligned in a 5-char field).  Checking the full line avoids
-    // false positives from "    1" appearing on other summary lines such as
-    // "Total files examined:".
+    // Extract the "Files copied:" line and parse the numeric count from the
+    // last whitespace-delimited token.  Parsing the number (rather than
+    // asserting on exact spacing) keeps this test focused on behavioural
+    // correctness and decouples it from cosmetic formatting changes.
     let copied_line = stdout
         .lines()
         .find(|l| l.contains("Files copied:"))
         .expect("expected a 'Files copied:' line in summary output");
-    assert!(
-        copied_line.ends_with("    1"),
-        "expected 'Files copied:' line to end with '    1'; got: {copied_line}"
-    );
+    let count: u64 = copied_line
+        .split_whitespace()
+        .next_back()
+        .and_then(|s| s.parse().ok())
+        .expect("expected a numeric count at the end of the 'Files copied:' line");
+    assert_eq!(count, 1, "expected Files copied count to be 1; got {count}");
 }
-/// `--serial --stop-on-error` with a missing source file must exit non-zero
-/// and abort processing.  In serial mode the `?` inside the for-loop
-/// short-circuits on the first error; this is distinct from the parallel path
-/// where workers complete before errors are surfaced.
+/// `--serial --stop-on-error` with a missing source file must exit 1 and copy
+/// no files.  With `--stop-on-error` and no `--dry-run`, `validate_sources`
+/// runs a pre-flight check over the whole list before any I/O; the missing
+/// path causes the process to exit before the processing loop runs.
 #[test]
 fn serial_stop_on_error_aborts_on_missing_source() {
     let tmp = tempfile::tempdir().expect("create temp dir");
@@ -721,14 +723,24 @@ fn serial_stop_on_error_aborts_on_missing_source() {
         .expect("failed to run gather");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_ne!(
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(
         output.status.code(),
-        Some(0),
-        "--serial --stop-on-error must exit non-zero when a source is missing; got 0\nstderr: {stderr}"
+        Some(1),
+        "--serial --stop-on-error must exit 1 when a source is missing; stderr: {stderr}"
     );
     assert!(
         stderr.contains(missing.to_str().unwrap()),
         "expected the missing path in stderr; got:\n{stderr}"
+    );
+    // Pre-flight aborts before any I/O — the real file must not be copied.
+    assert!(
+        !dst.join("real.txt").exists(),
+        "no file must be copied when pre-flight aborts"
+    );
+    assert!(
+        stdout.is_empty(),
+        "stdout must be empty on pre-flight abort; got:\n{stdout}"
     );
 }
 
