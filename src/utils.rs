@@ -252,6 +252,26 @@ fn files_are_identical(a: &std::path::Path, b: &std::path::Path) -> bool {
     }
 }
 
+/// Return `true` when `source` and `base_path` resolve to the same filesystem
+/// path (identical after symlink resolution and `..` normalisation).
+///
+/// This detects *self-targeting*: the caller passed a source that already
+/// lives inside the target directory (e.g. `gather /dst/report.pdf /dst`).
+/// In that case the dedup block must not run — `files_are_identical` would
+/// read the same inode twice, return `true`, and `remove_file` would silently
+/// destroy the only copy.
+///
+/// If either path cannot be canonicalized (e.g. the source does not yet
+/// exist) the function returns `false` so the normal error path in
+/// [`process_file`] reports the real problem.
+fn is_source_at_base(source: &std::path::Path, base_path: &std::path::Path) -> bool {
+    source
+        .canonicalize()
+        .ok()
+        .zip(base_path.canonicalize().ok())
+        .is_some_and(|(s, b)| s == b)
+}
+
 /// Build a collision-free target path.
 ///
 /// Returns `{dir}/{file_name}` when that path does not already exist and is
@@ -370,20 +390,10 @@ pub fn process_source(
     let base_path = std::path::Path::new(target_dir).join(file_name);
 
     // Guard against self-targeting: if the source already lives at base_path
-    // (e.g. `gather /dst/report.pdf /dst`), files_are_identical reads the same
-    // inode twice, returns true, and remove_file would silently destroy the
-    // only copy of the file.  Canonicalize both paths to detect this through
-    // symlinks or relative components.
-    let source_is_base = std::path::Path::new(source)
-        .canonicalize()
-        .ok()
-        .zip(base_path.canonicalize().ok())
-        .is_some_and(|(s, b)| s == b);
-
-    // When the source is already at its natural target location, there is
-    // nothing to do — skip the entire operation so neither the dedup block
-    // nor process_file can accidentally rename or delete it.
-    if source_is_base {
+    // (e.g. `gather /dst/report.pdf /dst`), files_are_identical would read
+    // the same inode twice, return `true`, and `remove_file` would silently
+    // destroy the only copy.  See `is_source_at_base` for details.
+    if is_source_at_base(std::path::Path::new(source), &base_path) {
         log::debug!("'{source}' is already at the target location — skipping.");
         return Ok(false);
     }
