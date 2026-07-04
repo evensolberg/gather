@@ -65,8 +65,8 @@ pub struct ProcessOptions {
 
 /// Pre-flight existence check: verify all source paths can be processed.
 ///
-/// Iterates over `sources` and checks each path for: (1) a valid filename
-/// component, (2) filesystem existence via `try_exists()`.  When
+/// Iterates over `sources` and calls `std::fs::metadata()` on each path to
+/// check existence, accessibility, and file type in one syscall.  When
 /// `stop_on_error` is `true` and `dry_run` is `false`, returns an error
 /// listing every problematic path so the user sees the complete picture in
 /// one message before any files are moved or copied.  In all other cases the
@@ -107,7 +107,7 @@ pub fn validate_sources(sources: &[&str], opts: &ProcessOptions) -> anyhow::Resu
         // denied); Ok + !is_file() → exists but is a directory, pipe, etc.
         match std::fs::metadata(s) {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                problems.push(s.to_string());
+                problems.push(format!("{s} (not found)"));
             }
             Err(err) => {
                 // OS-level error: add inline so the batch message shows all
@@ -182,21 +182,38 @@ pub fn process_file(
         return Ok(true);
     }
 
-    // Guard: source must be a regular file.  Without this, --move mode would
-    // silently succeed for a directory on Unix (fs::rename is directory-aware),
-    // contradicting the dry-run "(not a regular file — would be skipped)"
-    // notice and the tool's file-only semantics.  fs::copy returns EISDIR for
-    // directories, but being consistent across copy and move avoids surprises.
-    // If metadata() itself fails (source absent or inaccessible), we fall
-    // through and let fs::copy / fs::rename surface the OS error below.
-    if let Ok(meta) = std::fs::metadata(source) {
-        if !meta.is_file() {
+    // Guard: check source is a regular file before operating on it.
+    // Without this, --move mode would silently succeed for a directory on Unix
+    // (fs::rename is directory-aware), contradicting the dry-run preview and
+    // the tool's file-only semantics.  Handling Err cases here (absent,
+    // inaccessible) keeps the real-run messages consistent with dry-run, where
+    // the same conditions are also reported explicitly rather than deferred to
+    // fs::copy / fs::rename.  On a TOCTOU race (file disappears between this
+    // check and the copy), the copy will fail and the error is surfaced below.
+    match std::fs::metadata(source) {
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            // Absent file — consistent with dry-run "(not found)" notice.
+            // Fall through to fs::copy/rename which will produce an OS error;
+            // this mirrors the pre-flight path and avoids double-reporting.
+        }
+        Err(err) => {
+            // Inaccessible (e.g. permission denied on stat) — report now so
+            // the message matches the dry-run "(not accessible: …)" output.
+            if opts.stop_on_error {
+                return Err(anyhow::Error::from(err))
+                    .with_context(|| format!("'{source}' is not accessible"));
+            }
+            log::warn!("'{source}' is not accessible ({err}). Skipping.");
+            return Ok(false);
+        }
+        Ok(meta) if !meta.is_file() => {
             if opts.stop_on_error {
                 anyhow::bail!("'{source}' is not a regular file");
             }
             log::warn!("'{source}' is not a regular file. Skipping.");
             return Ok(false);
         }
+        Ok(_) => {} // regular file — proceed to copy/rename
     }
 
     log::debug!("{verb} {source} to {target_display}");
