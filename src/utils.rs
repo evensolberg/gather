@@ -965,7 +965,7 @@ mod tests {
         );
     }
 
-        #[test]
+    #[test]
     fn process_source_dry_run_collision_shows_distinct_targets() {
         // In dry-run mode no files are written to disk, so resolve_unique_target
         // would see an empty target for every call and predict the same path for
