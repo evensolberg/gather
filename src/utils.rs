@@ -231,6 +231,28 @@ pub fn process_file(
     }
 }
 
+/// Compare two files for identical content.
+///
+/// Returns `true` only when both files exist, have the same byte length, and
+/// every byte matches.  A size mismatch short-circuits without reading either
+/// file; any I/O error (missing file, permission denied, etc.) returns `false`
+/// so callers never need to handle an error from this function.
+fn files_are_identical(a: &std::path::Path, b: &std::path::Path) -> bool {
+    // Stat both files; any error (file absent, permission denied) → not equal.
+    let (Ok(ma), Ok(mb)) = (std::fs::metadata(a), std::fs::metadata(b)) else {
+        return false;
+    };
+    // Fast rejection: different sizes cannot be identical.
+    if ma.len() != mb.len() {
+        return false;
+    }
+    // Full byte comparison for equal-sized files.
+    match (std::fs::read(a), std::fs::read(b)) {
+        (Ok(ca), Ok(cb)) => ca == cb,
+        _ => false,
+    }
+}
+
 /// Build a collision-free target path.
 ///
 /// Returns `{dir}/{file_name}` when that path does not already exist and is
@@ -340,6 +362,32 @@ pub fn process_source(
         claimed.as_deref(),
     );
 
+    // Dedup: when a collision was detected (target_path is a suffixed variant)
+    // and the existing file at the base path is byte-for-byte identical to the
+    // source, there is nothing new to store.  Skip the copy (or, in move mode,
+    // remove the redundant source so move semantics hold) without creating an
+    // unnecessary _N copy.  Dry-run skips this check — the preview is shown
+    // via process_file and the comparison would require reading files that may
+    // not yet exist at the target.
+    let base_path = std::path::Path::new(target_dir).join(file_name);
+    if !opts.dry_run && target_path != base_path && files_are_identical(std::path::Path::new(source), &base_path) {
+        if opts.move_files {
+            // Remove the redundant source so callers see clean move semantics.
+            if let Err(err) = std::fs::remove_file(source) {
+                if opts.stop_on_error {
+                    return Err(err)
+                        .with_context(|| format!("Identical duplicate: unable to remove '{source}'"));
+                }
+                log::warn!("Identical duplicate: unable to remove '{source}': {err}");
+                return Ok(false);
+            }
+            log::info!("'{source}' is identical to existing '{}' — redundant source removed.", base_path.display());
+        } else {
+            log::info!("'{source}' is identical to existing '{}' — skipping duplicate.", base_path.display());
+        }
+        return Ok(false);
+    }
+
     // Warn when the target name was changed to avoid a silent overwrite.
     // Emit only the filename (not the full path) to keep the message scannable.
     // resolve_unique_target always joins a name onto the directory, so the
@@ -366,8 +414,8 @@ pub fn process_source(
 #[cfg(test)]
 mod tests {
     use super::{
-        check_directory, log_level, process_file, process_source, resolve_unique_target,
-        validate_sources, ProcessOptions,
+        check_directory, files_are_identical, log_level, process_file, process_source,
+        resolve_unique_target, validate_sources, ProcessOptions,
     };
     use log::LevelFilter;
 
@@ -1148,5 +1196,196 @@ mod tests {
         let second = std::fs::read(&renamed).expect("report_1.pdf must be readable");
         assert_eq!(second, b"content-b", "second target content must be preserved");
     }
+
+    // ---------------------------------------------------------------------------
+    // files_are_identical
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn files_are_identical_same_content_returns_true() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let a = dir.path().join("a.txt");
+        let b = dir.path().join("b.txt");
+        std::fs::write(&a, b"hello world").expect("write a");
+        std::fs::write(&b, b"hello world").expect("write b");
+        assert!(
+            files_are_identical(&a, &b),
+            "identical content must return true"
+        );
+    }
+
+    #[test]
+    fn files_are_identical_different_content_returns_false() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let a = dir.path().join("a.txt");
+        let b = dir.path().join("b.txt");
+        std::fs::write(&a, b"hello").expect("write a");
+        std::fs::write(&b, b"world").expect("write b");
+        assert!(
+            !files_are_identical(&a, &b),
+            "different content must return false"
+        );
+    }
+
+    #[test]
+    fn files_are_identical_different_sizes_returns_false() {
+        // Fast-path: size mismatch should be rejected without reading content.
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let a = dir.path().join("a.txt");
+        let b = dir.path().join("b.txt");
+        std::fs::write(&a, b"short").expect("write a");
+        std::fs::write(&b, b"much longer content here").expect("write b");
+        assert!(
+            !files_are_identical(&a, &b),
+            "different sizes must return false"
+        );
+    }
+
+    #[test]
+    fn files_are_identical_nonexistent_file_returns_false() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let a = dir.path().join("exists.txt");
+        let b = dir.path().join("missing.txt"); // not created
+        std::fs::write(&a, b"data").expect("write a");
+        assert!(
+            !files_are_identical(&a, &b),
+            "a missing file must return false rather than panic"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // process_source — dedup: identical collision is skipped
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn process_source_identical_collision_skips_second_copy() {
+        // When two sources have the same basename AND identical content, the
+        // second must be skipped (Ok(false)) rather than creating report_1.pdf.
+        let src_dir_a = tempfile::tempdir().expect("create src dir a");
+        let src_dir_b = tempfile::tempdir().expect("create src dir b");
+        let target_dir = tempfile::tempdir().expect("create target dir");
+
+        let src_a = src_dir_a.path().join("report.pdf");
+        let src_b = src_dir_b.path().join("report.pdf");
+        std::fs::write(&src_a, b"same content").expect("write src a");
+        std::fs::write(&src_b, b"same content").expect("write src b");
+
+        let opts = ProcessOptions {
+            dry_run: false,
+            move_files: false,
+            stop_on_error: false,
+            show_detail_info: false,
+        };
+
+        // First copy lands as report.pdf.
+        let r_a = process_source(
+            src_a.to_str().expect("utf-8"),
+            target_dir.path().to_str().expect("utf-8"),
+            &opts,
+            None,
+        );
+        assert!(r_a.expect("first copy must not error"), "first copy: Ok(true)");
+
+        // Second copy must be skipped — identical content already at target.
+        let r_b = process_source(
+            src_b.to_str().expect("utf-8"),
+            target_dir.path().to_str().expect("utf-8"),
+            &opts,
+            None,
+        );
+        assert!(
+            !r_b.expect("second copy must not error"),
+            "identical second source must return Ok(false)"
+        );
+
+        // report_1.pdf must NOT exist — the file was dedup'd, not renamed.
+        assert!(
+            !target_dir.path().join("report_1.pdf").exists(),
+            "report_1.pdf must not be created for an identical duplicate"
+        );
+        // Original report.pdf must still exist with correct content.
+        let content = std::fs::read(target_dir.path().join("report.pdf"))
+            .expect("report.pdf must exist");
+        assert_eq!(content, b"same content", "target content must be preserved");
+    }
+
+    #[test]
+    fn process_source_identical_collision_move_removes_source() {
+        // In move mode with identical content, the duplicate source must be
+        // removed (move semantics: source goes away) without creating report_1.pdf.
+        let src_dir_a = tempfile::tempdir().expect("create src dir a");
+        let src_dir_b = tempfile::tempdir().expect("create src dir b");
+        let target_dir = tempfile::tempdir().expect("create target dir");
+
+        let src_a = src_dir_a.path().join("report.pdf");
+        let src_b = src_dir_b.path().join("report.pdf");
+        std::fs::write(&src_a, b"same content").expect("write src a");
+        std::fs::write(&src_b, b"same content").expect("write src b");
+
+        let opts = ProcessOptions {
+            dry_run: false,
+            move_files: true,
+            stop_on_error: false,
+            show_detail_info: false,
+        };
+
+        // First move lands as report.pdf, source removed.
+        let r_a = process_source(
+            src_a.to_str().expect("utf-8"),
+            target_dir.path().to_str().expect("utf-8"),
+            &opts,
+            None,
+        );
+        assert!(r_a.expect("first move must not error"), "first move: Ok(true)");
+        assert!(!src_a.exists(), "first source must be removed after move");
+
+        // Second move: identical content → source must be removed, no report_1.pdf.
+        let r_b = process_source(
+            src_b.to_str().expect("utf-8"),
+            target_dir.path().to_str().expect("utf-8"),
+            &opts,
+            None,
+        );
+        assert!(
+            !r_b.expect("second move must not error"),
+            "identical second source in move mode must return Ok(false)"
+        );
+        assert!(!src_b.exists(), "duplicate source must be removed in move mode");
+        assert!(
+            !target_dir.path().join("report_1.pdf").exists(),
+            "report_1.pdf must not be created for an identical duplicate"
+        );
+    }
+
+    #[test]
+    fn process_source_different_content_collision_still_renames() {
+        // When content differs, the existing rename-to-suffix behaviour must be
+        // unaffected by the dedup check.
+        let src_dir_a = tempfile::tempdir().expect("create src dir a");
+        let src_dir_b = tempfile::tempdir().expect("create src dir b");
+        let target_dir = tempfile::tempdir().expect("create target dir");
+
+        let src_a = src_dir_a.path().join("report.pdf");
+        let src_b = src_dir_b.path().join("report.pdf");
+        std::fs::write(&src_a, b"content-a").expect("write src a");
+        std::fs::write(&src_b, b"content-b").expect("write src b");
+
+        let opts = ProcessOptions {
+            dry_run: false,
+            move_files: false,
+            stop_on_error: false,
+            show_detail_info: false,
+        };
+
+        process_source(src_a.to_str().expect("utf-8"), target_dir.path().to_str().expect("utf-8"), &opts, None).unwrap();
+        let r_b = process_source(src_b.to_str().expect("utf-8"), target_dir.path().to_str().expect("utf-8"), &opts, None).unwrap();
+
+        assert!(r_b, "different content collision must return Ok(true) after rename");
+        assert!(
+            target_dir.path().join("report_1.pdf").exists(),
+            "report_1.pdf must be created when content differs"
+        );
+    }
+
 
 }
