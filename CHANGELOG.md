@@ -1,31 +1,50 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
-## [unreleased]
+## [0.4.0] - 2026-07-03
 
-## [0.3.2] - 2026-07-02
+### Miscellaneous Tasks
+
+- Close gtr-4h2
+- Close gtr-3dm
+- Align CHANGELOG headings with cliff.toml groups (gtr-886)
+- Clean up blocking links now that gtr-3dm is closed
 
 ### Refactor
 
-- Modernise `main()`: replace `process::exit` with `ExitCode::FAILURE` so destructors and buffered log flushes run on error path (#81)
-- Remove dead `.replace('"', "")` workaround — `{err}` (Display) never emits spurious quotes (#81)
+- Fluent-chain Builder in log_build (gtr-3dm) (#82)
+- Anyhow error handling + extract process_file (gtr-jz8, gtr-3aa) (#83)
 
-### Testing
-
-- Add integration tests covering error-path exit code, stderr routing, and quote-free error messages (#81, gtr-6ug, gtr-bmr)
-- Add unit tests for `check_directory` and `log_build` (#78, gtr-ar3)
+## [0.3.2] - 2026-07-03
 
 ### Bug Fixes
 
 - Switch target to named --target/-t option (0.3.0) (#74)
 - -q no longer silences -p/--print-summary output (#75)
-- -q no longer silences -n/--dry-run banner and file previews (#77)
+- Dry-run output no longer silenced by -q (gtr-bdh) (#77)
+
+### Chore
+
+- Updated the justfile
+- Bump version to v0.3.2
+
+### Fix
+
+- Various code fixes
 
 ### Miscellaneous Tasks
 
-- Bump `log` from 0.4.32 to 0.4.33 (#79)
-- Bump `env_logger` from 0.11.10 to 0.11.11 (#80)
-- Updated the justfile
+- Bump version to 0.3.1 (#76)
+- Bump log from 0.4.32 to 0.4.33 (#79)
+- Bump env_logger from 0.11.10 to 0.11.11 (#80)
+
+### Refactor
+
+- Modernise main() and remove dead replace() call (#81)
+
+### Testing
+
+- Add unit tests for check_directory and log_build (gtr-ar3) (#78)
 
 ## [0.2.6] - 2026-06-09
 
