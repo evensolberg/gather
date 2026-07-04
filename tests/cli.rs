@@ -542,4 +542,3 @@ stderr: {stderr}",
         "dry-run must not copy any files"
     );
 }
-
