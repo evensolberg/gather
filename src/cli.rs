@@ -39,7 +39,7 @@ fn build_command() -> Command {
             Arg::new("stop")
                 .short('s')
                 .long("stop-on-error")
-                .help("Stop on error. If this flag isn't set, the application will attempt to continue in case of error.")
+                .help("Stop on error. Combine with --serial for true halt-on-first-error; in parallel mode, in-flight operations always complete before the error is reported.")
                 .action(ArgAction::SetTrue)
         )
         .arg( // Dry-run

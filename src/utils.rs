@@ -250,9 +250,9 @@ pub fn process_source(
 ) -> anyhow::Result<bool> {
     let Some(file_name) = std::path::Path::new(source).file_name() else {
         if opts.stop_on_error {
-            anyhow::bail!("Invalid filename in path: {source}. Halting.");
+            anyhow::bail!("Invalid filename in path: '{source}'. Halting.");
         }
-        log::warn!("Invalid filename in path: {source}. Continuing.");
+        log::warn!("Invalid filename in path: '{source}'. Continuing.");
         return Ok(false);
     };
 
@@ -660,7 +660,7 @@ mod tests {
     #[test]
     fn process_source_invalid_path_soft_error_returns_ok_false() {
         // A path whose last component is ".." has no usable filename.
-        // In soft-error mode this must skip silently (Ok(false)) rather than panic.
+        // In soft-error mode this must return Ok(false) (logging a warning) rather than panic.
         let dir = tempfile::tempdir().expect("create temp dir");
         let opts = ProcessOptions {
             dry_run: false,
