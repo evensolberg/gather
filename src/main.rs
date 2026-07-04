@@ -50,12 +50,10 @@ fn run() -> anyhow::Result<()> {
         println!("Starting dry-run.");
     }
 
-    // Pre-flight existence check: only useful when the user asked for a hard stop
-    // on errors and this is not a dry-run.  In soft-error mode or dry-run the
-    // function is a no-op, so skip the Path::try_exists() pass over every source.
-    if opts.stop_on_error && !opts.dry_run {
-        utils::validate_sources(&sources, &opts)?;
-    }
+    // Pre-flight existence check: validate_sources returns Ok(()) immediately in
+    // soft-error mode or dry-run; calling it unconditionally keeps the activation
+    // condition in one place (inside the function) rather than duplicated here.
+    utils::validate_sources(&sources, &opts)?;
 
     let mut total_file_count: usize = 0;
     let mut processed_file_count: usize = 0;

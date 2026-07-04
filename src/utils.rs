@@ -96,7 +96,7 @@ pub fn validate_sources(sources: &[&str], opts: &ProcessOptions) -> anyhow::Resu
     // is inherent in any check-then-act design and is acceptable for the
     // single-user interactive use case this tool targets.
     let mut missing: Vec<&str> = Vec::new();
-    for &s in sources.iter() {
+    for &s in sources {
         match std::path::Path::new(s).try_exists() {
             Ok(true) => {}  // file exists — nothing to do
             Ok(false) => missing.push(s),
