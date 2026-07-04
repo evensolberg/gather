@@ -50,8 +50,10 @@ fn run() -> anyhow::Result<()> {
         println!("Starting dry-run.");
     }
 
-    // Pre-flight: in hard-error, non-dry-run mode abort if any source path is
-    // absent, inaccessible, or not a regular file — before touching any files.
+    // Pre-flight: abort if any source path is absent, inaccessible, or not a
+    // regular file before touching any files.  Dry-run intentionally skips
+    // this — dry-run is a best-effort preview ("what would happen?") and
+    // should show per-file notices rather than aborting, even with --stop.
     if opts.stop_on_error && !opts.dry_run {
         utils::validate_sources(&sources)?;
     }

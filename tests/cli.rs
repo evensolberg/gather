@@ -496,3 +496,50 @@ fn dry_run_missing_source_shows_not_found_notice() {
         "expected a 'not found' notice in dry-run stdout for a missing source; got:\n{stdout}"
     );
 }
+
+/// `--dry-run` combined with `--stop-on-error` must still produce the preview
+/// output and exit 0 — dry-run is a best-effort preview regardless of --stop.
+/// validate_sources is intentionally skipped in dry-run mode; per-file "(not
+/// found — would be skipped)" notices are shown instead of aborting.
+#[test]
+fn dry_run_with_stop_on_error_still_shows_preview() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let dst = tmp.path().join("dst");
+    fs::create_dir_all(&dst).expect("create dst dir");
+
+    let real = tmp.path().join("real.txt");
+    fs::write(&real, b"data").expect("write real file");
+    let missing = tmp.path().join("missing.txt"); // intentionally never created
+
+    let output = Command::new(GATHER)
+        .arg("--dry-run")
+        .arg("--stop-on-error")
+        .arg(real.to_str().unwrap())
+        .arg(missing.to_str().unwrap())
+        .arg("-t")
+        .arg(&dst)
+        .output()
+        .expect("failed to run gather");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Dry-run must exit 0 even with --stop-on-error.
+    assert!(
+        output.status.success(),
+        "expected exit 0 (dry-run is best-effort preview); got {:?}
+stderr: {stderr}",
+        output.status,
+    );
+    // The missing file must appear in the preview with a "(not found)" notice.
+    assert!(
+        stdout.contains("not found"),
+        "expected '(not found)' in dry-run stdout for missing source; got:
+{stdout}"
+    );
+    // No files should have been created in the destination.
+    assert!(
+        !dst.join("real.txt").exists(),
+        "dry-run must not copy any files"
+    );
+}
+

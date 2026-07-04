@@ -573,7 +573,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_sources_missing_with_stop_on_error_returns_err() {
+    fn validate_sources_missing_returns_err() {
         let dir = tempfile::tempdir().expect("create temp dir");
         let absent = dir.path().join("no_such_file.txt");
         let sources = [absent.to_str().expect("utf-8")];
@@ -585,20 +585,26 @@ mod tests {
 
 
     #[test]
-    fn validate_sources_multiple_missing_all_halt_on_stop_on_error() {
+    fn validate_sources_multiple_missing_reports_all() {
         let dir = tempfile::tempdir().expect("create temp dir");
         let a = dir.path().join("missing_a.txt");
         let b = dir.path().join("missing_b.txt");
         let sources = [a.to_str().expect("utf-8"), b.to_str().expect("utf-8")];
         let result = validate_sources(&sources);
-        assert!(
-            result.is_err(),
-            "multiple missing paths + stop_on_error=true should return Err"
-        );
+        assert!(result.is_err(), "multiple missing paths should return Err");
         let msg = format!("{}", result.unwrap_err());
         assert!(
             msg.contains("2 source path(s) cannot be processed"),
-            "error message should contain '2 source path(s) cannot be processed'; got: {msg}"
+            "error message should contain count; got: {msg}"
+        );
+        // Both individual paths must be mentioned so the user sees the full picture.
+        assert!(
+            msg.contains(a.to_str().expect("utf-8")),
+            "error message must mention the first missing path; got: {msg}"
+        );
+        assert!(
+            msg.contains(b.to_str().expect("utf-8")),
+            "error message must mention the second missing path; got: {msg}"
         );
     }
 
