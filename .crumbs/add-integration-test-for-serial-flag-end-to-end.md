@@ -1,7 +1,7 @@
 ---
 id: gtr-1a5
 title: Add integration test for --serial flag end-to-end
-status: open
+status: closed
 type: feature
 priority: 3
 tags:
