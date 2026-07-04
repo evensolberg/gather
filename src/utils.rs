@@ -231,12 +231,67 @@ pub fn process_file(
     }
 }
 
-/// Process one source path: resolve a usable filename, build the target path,
-/// then delegate to [`process_file`].
+/// Build a collision-free target path.
+///
+/// Returns `{dir}/{file_name}` when that path does not already exist.
+/// Otherwise appends `_N` before the extension (`report_1.pdf`, `report_2.pdf`,
+/// …) and increments N until an unoccupied path is found.  The search is
+/// bounded by `u32::MAX` — effectively infinite for any real file system.
+///
+/// Note: there is an inherent TOCTOU race between the existence check here
+/// and the subsequent write in [`process_file`].  Two parallel workers
+/// processing files with the same basename could both observe the same
+/// unoccupied path, then race to write it.  This is accepted for the
+/// single-user interactive use-case this tool targets; running with
+/// `--serial` eliminates the race entirely.
+fn resolve_unique_target(
+    dir: &std::path::Path,
+    file_name: &std::ffi::OsStr,
+) -> std::path::PathBuf {
+    let base = dir.join(file_name);
+    if !base.exists() {
+        return base;
+    }
+
+    let p = std::path::Path::new(file_name);
+    // file_stem() returns None only for the empty string, which is already
+    // rejected by the file_name() guard in process_source before we get here.
+    let stem = p.file_stem().unwrap_or(file_name);
+    let ext = p.extension();
+
+    for n in 1_u32.. {
+        let new_name = match ext {
+            Some(e) => format!(
+                "{}_{}.{}",
+                stem.to_string_lossy(),
+                n,
+                e.to_string_lossy()
+            ),
+            None => format!("{}_{}", stem.to_string_lossy(), n),
+        };
+        let candidate = dir.join(&new_name);
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    // u32 exhausted — unreachable on any real file system.
+    unreachable!(
+        "u32 suffix range exhausted for '{}'",
+        file_name.to_string_lossy()
+    )
+}
+
+/// Process one source path: resolve a usable filename, build a collision-free
+/// target path, then delegate to [`process_file`].
 ///
 /// Isolating this logic from the main loop makes it callable from both a
 /// serial iterator and a parallel Rayon iterator without duplicating the
 /// filename-extraction guard.
+///
+/// When the computed target path already exists (two sources share the same
+/// basename), [`resolve_unique_target`] appends a numeric suffix so both
+/// files are preserved rather than the second silently overwriting the first.
+/// A warning is emitted whenever the name changes.
 ///
 /// # Returns
 ///
@@ -256,13 +311,25 @@ pub fn process_source(
         return Ok(false);
     };
 
-    let new_filename = std::path::Path::new(target_dir).join(file_name);
-    process_file(source, &new_filename, opts)
+    let target_path = resolve_unique_target(std::path::Path::new(target_dir), file_name);
+
+    // Warn when the target name was changed to avoid a silent overwrite.
+    if target_path.file_name() != Some(file_name) {
+        log::warn!(
+            "Name collision: '{source}' written as '{}' to avoid overwriting an existing file.",
+            target_path.display()
+        );
+    }
+
+    process_file(source, &target_path, opts)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{check_directory, log_level, process_file, process_source, validate_sources, ProcessOptions};
+    use super::{
+        check_directory, log_level, process_file, process_source, resolve_unique_target,
+        validate_sources, ProcessOptions,
+    };
     use log::LevelFilter;
 
     // ---------------------------------------------------------------------------
@@ -713,6 +780,125 @@ mod tests {
         assert!(result.expect("valid copy should return Ok"), "valid copy should return Ok(true)");
         assert!(target_dir.path().join("in.txt").exists(), "copy must create target file");
         assert!(src.exists(), "copy must not remove source file");
+    }
+
+    // ---------------------------------------------------------------------------
+    // resolve_unique_target
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn resolve_unique_target_returns_base_when_no_collision() {
+        // When the target path does not exist, the original name is returned as-is.
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let name = std::ffi::OsStr::new("report.pdf");
+        let result = resolve_unique_target(dir.path(), name);
+        assert_eq!(
+            result,
+            dir.path().join("report.pdf"),
+            "no collision: should return the unmodified basename"
+        );
+    }
+
+    #[test]
+    fn resolve_unique_target_suffix_1_when_base_exists() {
+        // When report.pdf already occupies the target, the next candidate is report_1.pdf.
+        let dir = tempfile::tempdir().expect("create temp dir");
+        std::fs::write(dir.path().join("report.pdf"), b"original").expect("write");
+        let name = std::ffi::OsStr::new("report.pdf");
+        let result = resolve_unique_target(dir.path(), name);
+        assert_eq!(
+            result,
+            dir.path().join("report_1.pdf"),
+            "single collision: should return <stem>_1.<ext>"
+        );
+    }
+
+    #[test]
+    fn resolve_unique_target_skips_taken_suffixes() {
+        // When both report.pdf and report_1.pdf exist, the function must skip to report_2.pdf.
+        let dir = tempfile::tempdir().expect("create temp dir");
+        std::fs::write(dir.path().join("report.pdf"), b"a").expect("write base");
+        std::fs::write(dir.path().join("report_1.pdf"), b"b").expect("write _1");
+        let name = std::ffi::OsStr::new("report.pdf");
+        let result = resolve_unique_target(dir.path(), name);
+        assert_eq!(
+            result,
+            dir.path().join("report_2.pdf"),
+            "two collisions: should return <stem>_2.<ext>"
+        );
+    }
+
+    #[test]
+    fn resolve_unique_target_no_extension_appends_suffix() {
+        // Files without an extension (e.g. Makefile) must be suffixed as Makefile_1.
+        let dir = tempfile::tempdir().expect("create temp dir");
+        std::fs::write(dir.path().join("Makefile"), b"x").expect("write");
+        let name = std::ffi::OsStr::new("Makefile");
+        let result = resolve_unique_target(dir.path(), name);
+        assert_eq!(
+            result,
+            dir.path().join("Makefile_1"),
+            "extension-less file: should return <name>_1"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // process_source — collision avoidance (integration)
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn process_source_collision_keeps_both_files() {
+        // When two source files share the same basename (common when gathering
+        // from multiple directories), both must be preserved in the target.
+        // The second must NOT overwrite the first; it must be renamed <stem>_1.<ext>.
+        let src_dir_a = tempfile::tempdir().expect("create src dir a");
+        let src_dir_b = tempfile::tempdir().expect("create src dir b");
+        let target_dir = tempfile::tempdir().expect("create target dir");
+
+        let src_a = src_dir_a.path().join("report.pdf");
+        let src_b = src_dir_b.path().join("report.pdf");
+        std::fs::write(&src_a, b"content-a").expect("write src a");
+        std::fs::write(&src_b, b"content-b").expect("write src b");
+
+        let opts = ProcessOptions {
+            dry_run: false,
+            move_files: false,
+            stop_on_error: false,
+            show_detail_info: false,
+        };
+
+        // First file lands as report.pdf.
+        let result_a = process_source(
+            src_a.to_str().expect("utf-8"),
+            target_dir.path().to_str().expect("utf-8"),
+            &opts,
+        );
+        assert!(
+            result_a.expect("first copy should not error"),
+            "first copy should return Ok(true)"
+        );
+
+        // Second file must be written as report_1.pdf, not overwriting report.pdf.
+        let result_b = process_source(
+            src_b.to_str().expect("utf-8"),
+            target_dir.path().to_str().expect("utf-8"),
+            &opts,
+        );
+        assert!(
+            result_b.expect("second copy should not error"),
+            "second copy should return Ok(true)"
+        );
+
+        // Original file must be intact.
+        let first = std::fs::read(target_dir.path().join("report.pdf"))
+            .expect("report.pdf must exist");
+        assert_eq!(first, b"content-a", "first file must not be overwritten");
+
+        // Renamed copy must contain the second source's content.
+        let renamed = target_dir.path().join("report_1.pdf");
+        assert!(renamed.exists(), "second copy must be renamed to report_1.pdf");
+        let second = std::fs::read(&renamed).expect("report_1.pdf must be readable");
+        assert_eq!(second, b"content-b", "second file content must be preserved");
     }
 
 }
