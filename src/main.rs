@@ -63,11 +63,12 @@ fn run() -> anyhow::Result<()> {
     for source in sources.iter().copied() {
         total_file_count += 1;
 
-        // Paths ending in "/" or ".." have no filename component — treat like
-        // any other error.  In soft-error mode validate_sources is a no-op so
-        // this guard is the sole protection; in stop_on_error mode
-        // validate_sources catches these paths first (as "not a regular file"),
-        // making the bail! branch a defensive fallback.
+        // Paths whose last component is ".." (e.g. "foo/..") or that are the
+        // root ("/") have no filename component — treat like any other error.
+        // In soft-error mode validate_sources is a no-op so this guard is the
+        // sole protection; in stop_on_error mode validate_sources catches these
+        // paths first (as "not a regular file"), making the bail! branch a
+        // defensive fallback.
         let Some(file_name) = Path::new(source).file_name() else {
             if opts.stop_on_error {
                 anyhow::bail!("Invalid filename in path: {source}. Halting.");
