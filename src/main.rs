@@ -76,10 +76,24 @@ fn run() -> anyhow::Result<()> {
     // Every source produces exactly one outcome, so total is known up front.
     let total_file_count = sources.len();
     let (processed_file_count, skipped_file_count) = if serial || opts.dry_run {
+        // In dry-run mode, no files are written to disk, so resolve_unique_target
+        // cannot detect within-pass collisions from the filesystem alone.  We
+        // maintain a `dry_run_claimed` set and pass it to every process_source
+        // call so each successive call in the pass sees the paths already
+        // "allocated" by earlier calls and picks a distinct suffix.
+        //
+        // In non-dry-run serial mode the filesystem is the source of truth
+        // (files are written before the next call), so we pass None and the
+        // set is unused.
+        let mut dry_run_claimed: std::collections::HashSet<std::path::PathBuf> =
+            std::collections::HashSet::new();
         let mut processed = 0;
         let mut skipped = 0;
         for &source in &sources {
-            if utils::process_source(source, target_dir, &opts)? {
+            // Re-borrow the set each iteration (a mutable borrow cannot outlive
+            // the loop body). then_some passes None in non-dry-run mode.
+            let claimed = opts.dry_run.then_some(&mut dry_run_claimed);
+            if utils::process_source(source, target_dir, &opts, claimed)? {
                 processed += 1;
             } else {
                 skipped += 1;
@@ -89,7 +103,7 @@ fn run() -> anyhow::Result<()> {
     } else {
         let results: Vec<anyhow::Result<bool>> = sources
             .par_iter()
-            .map(|&source| utils::process_source(source, target_dir, &opts))
+            .map(|&source| utils::process_source(source, target_dir, &opts, None))
             .collect();
         let mut processed = 0;
         let mut skipped = 0;
