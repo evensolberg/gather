@@ -60,32 +60,49 @@ fn run() -> anyhow::Result<()> {
         utils::validate_sources(&sources)?;
     }
 
-    // Process files — in parallel by default, serially when --serial / -1 is set.
-    // Collect all results first so counters are accumulated after all I/O completes.
-    // Both paths call the same process_source function; only the iterator differs.
-    let results: Vec<anyhow::Result<bool>> = if serial {
-        sources
-            .iter()
-            .map(|&source| utils::process_source(source, target_dir, &opts))
-            .collect()
+    // Process files in parallel by default, serially when --serial/-1 is set.
+    //
+    // Serial path (including dry-run):
+    //   A plain for-loop with ? inside so --stop-on-error short-circuits on the
+    //   first error without touching remaining files.  Dry-run always runs serially
+    //   so preview lines appear in input order, which matters for auditing an
+    //   ordered file list.
+    //
+    // Parallel path:
+    //   par_iter().collect() dispatches all workers concurrently.  collect::<Vec<Result>>
+    //   is eager and non-short-circuiting, so --stop-on-error cannot abort in-flight
+    //   operations; it surfaces the first Err after all workers complete.  For true
+    //   halt-on-first-error semantics combine --serial with --stop.
+    let (total_file_count, processed_file_count, skipped_file_count) = if serial || opts.dry_run {
+        let mut total = 0usize;
+        let mut processed = 0usize;
+        let mut skipped = 0usize;
+        for &source in &sources {
+            total += 1;
+            if utils::process_source(source, target_dir, &opts)? {
+                processed += 1;
+            } else {
+                skipped += 1;
+            }
+        }
+        (total, processed, skipped)
     } else {
-        sources
+        let results: Vec<anyhow::Result<bool>> = sources
             .par_iter()
             .map(|&source| utils::process_source(source, target_dir, &opts))
-            .collect()
-    };
-
-    let total_file_count = results.len();
-    let mut processed_file_count: usize = 0;
-    let mut skipped_file_count: usize = 0;
-
-    for result in results {
-        if result? {
-            processed_file_count += 1;
-        } else {
-            skipped_file_count += 1;
+            .collect();
+        let total = results.len();
+        let mut processed = 0usize;
+        let mut skipped = 0usize;
+        for result in results {
+            if result? {
+                processed += 1;
+            } else {
+                skipped += 1;
+            }
         }
-    }
+        (total, processed, skipped)
+    };
 
     if print_summary {
         // Write directly to stdout so the summary is never silenced by -q/--quiet.
