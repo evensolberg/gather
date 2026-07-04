@@ -681,9 +681,17 @@ fn serial_print_summary_counts_correctly() {
         stdout.contains("Total files examined:"),
         "expected summary header in stdout; got:\n{stdout}"
     );
+    // Extract the "Files copied:" line and check its trailing count is exactly
+    // "    1" (right-aligned in a 5-char field).  Checking the full line avoids
+    // false positives from "    1" appearing on other summary lines such as
+    // "Total files examined:".
+    let copied_line = stdout
+        .lines()
+        .find(|l| l.contains("Files copied:"))
+        .expect("expected a 'Files copied:' line in summary output");
     assert!(
-        stdout.contains("Files copied:") && stdout.contains("    1"),
-        "expected 'Files copied:' with count 1 in summary; got:\n{stdout}"
+        copied_line.ends_with("    1"),
+        "expected 'Files copied:' line to end with '    1'; got: {copied_line}"
     );
 }
 /// `--serial --stop-on-error` with a missing source file must exit non-zero
@@ -738,8 +746,8 @@ fn serial_dry_run_shows_preview_and_creates_no_files() {
         "expected dry-run banner with --serial --dry-run; got:\n{stdout}"
     );
     assert!(
-        stdout.contains("==>") && stdout.contains(src_str),
-        "expected file preview with --serial --dry-run; got:\n{stdout}"
+        stdout.contains("==>") && stdout.contains(src_str) && stdout.contains(dst_str),
+        "expected file preview '{src_str} ==> {dst_str}' with --serial --dry-run; got:\n{stdout}"
     );
     assert!(
         !dst.join("sample.txt").exists(),
