@@ -73,27 +73,26 @@ fn run() -> anyhow::Result<()> {
     //   is eager and non-short-circuiting, so --stop-on-error cannot abort in-flight
     //   operations; it surfaces the first Err after all workers complete.  For true
     //   halt-on-first-error semantics combine --serial with --stop.
-    let (total_file_count, processed_file_count, skipped_file_count) = if serial || opts.dry_run {
-        let mut total = 0usize;
-        let mut processed = 0usize;
-        let mut skipped = 0usize;
+    // Every source produces exactly one outcome, so total is known up front.
+    let total_file_count = sources.len();
+    let (processed_file_count, skipped_file_count) = if serial || opts.dry_run {
+        let mut processed = 0;
+        let mut skipped = 0;
         for &source in &sources {
-            total += 1;
             if utils::process_source(source, target_dir, &opts)? {
                 processed += 1;
             } else {
                 skipped += 1;
             }
         }
-        (total, processed, skipped)
+        (processed, skipped)
     } else {
         let results: Vec<anyhow::Result<bool>> = sources
             .par_iter()
             .map(|&source| utils::process_source(source, target_dir, &opts))
             .collect();
-        let total = results.len();
-        let mut processed = 0usize;
-        let mut skipped = 0usize;
+        let mut processed = 0;
+        let mut skipped = 0;
         for result in results {
             if result? {
                 processed += 1;
@@ -101,7 +100,7 @@ fn run() -> anyhow::Result<()> {
                 skipped += 1;
             }
         }
-        (total, processed, skipped)
+        (processed, skipped)
     };
 
     if print_summary {
