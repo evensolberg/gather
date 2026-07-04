@@ -50,10 +50,11 @@ fn run() -> anyhow::Result<()> {
         println!("Starting dry-run.");
     }
 
-    // Pre-flight existence check: validate_sources returns Ok(()) immediately in
-    // soft-error mode or dry-run; calling it unconditionally keeps the activation
-    // condition in one place (inside the function) rather than duplicated here.
-    utils::validate_sources(&sources, &opts)?;
+    // Pre-flight: in hard-error, non-dry-run mode abort if any source path is
+    // absent, inaccessible, or not a regular file — before touching any files.
+    if opts.stop_on_error && !opts.dry_run {
+        utils::validate_sources(&sources)?;
+    }
 
     let mut total_file_count: usize = 0;
     let mut processed_file_count: usize = 0;
@@ -66,10 +67,10 @@ fn run() -> anyhow::Result<()> {
         // Path::file_name() returns None when the last path component is ".."
         // (Component::ParentDir, e.g. "foo/..") or the path is the root "/"
         // (Component::RootDir) — neither has a usable target filename.
-        // In soft-error mode validate_sources is a no-op so this guard is the
-        // sole protection; in stop_on_error mode validate_sources will have
-        // already rejected such paths (e.g. as not found, not a regular file,
-        // or inaccessible), making the bail! branch a defensive fallback.
+        // In soft-error mode validate_sources is not called, so this guard is
+        // the sole protection; in stop_on_error mode validate_sources will
+        // have already rejected such paths (e.g. as not found, not a regular
+        // file, or inaccessible), making the bail! branch a defensive fallback.
         let Some(file_name) = Path::new(source).file_name() else {
             if opts.stop_on_error {
                 anyhow::bail!("Invalid filename in path: {source}. Halting.");
