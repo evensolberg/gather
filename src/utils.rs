@@ -253,10 +253,18 @@ pub fn process_file(
 fn resolve_unique_target(
     dir: &std::path::Path,
     file_name: &std::ffi::OsStr,
-    claimed: &std::collections::HashSet<std::path::PathBuf>,
+    claimed: Option<&std::collections::HashSet<std::path::PathBuf>>,
 ) -> std::path::PathBuf {
+    // A path is free when the filesystem does not have it AND it is absent
+    // from the caller-supplied claimed set (if provided).  Passing None
+    // skips the claimed check and incurs no allocation — the common case
+    // for non-dry-run operation where the real filesystem is authoritative.
+    let is_free = |p: &std::path::PathBuf| {
+        !p.exists() && claimed.is_none_or(|c| !c.contains(p))
+    };
+
     let base = dir.join(file_name);
-    if !base.exists() && !claimed.contains(&base) {
+    if is_free(&base) {
         return base;
     }
 
@@ -277,7 +285,7 @@ fn resolve_unique_target(
             None => format!("{}_{}", stem.to_string_lossy(), n),
         };
         let candidate = dir.join(&new_name);
-        if !candidate.exists() && !claimed.contains(&candidate) {
+        if is_free(&candidate) {
             return candidate;
         }
     }
@@ -330,14 +338,13 @@ pub fn process_source(
 
     // Resolve a collision-free target path.  In dry-run mode the caller
     // provides a `claimed` set so collisions are detected without disk writes.
-    let empty: std::collections::HashSet<std::path::PathBuf> = std::collections::HashSet::new();
-    let claimed_ref: &std::collections::HashSet<std::path::PathBuf> =
-        match claimed.as_deref() {
-            Some(c) => c,
-            None => &empty,
-        };
-    let target_path =
-        resolve_unique_target(std::path::Path::new(target_dir), file_name, claimed_ref);
+    // claimed.as_deref() converts Option<&mut HashSet> → Option<&HashSet>,
+    // passing None when there is no set (non-dry-run) — no allocation needed.
+    let target_path = resolve_unique_target(
+        std::path::Path::new(target_dir),
+        file_name,
+        claimed.as_deref(),
+    );
 
     // Register the chosen path so subsequent calls in the same dry-run pass
     // see it as occupied (claimed is None in non-dry-run mode, so this is a no-op).
@@ -352,9 +359,7 @@ pub fn process_source(
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| target_path.display().to_string());
-        log::warn!(
-            "Name collision: '{source}' written as '{renamed}'              to avoid overwriting an existing file."
-        );
+        log::warn!("Name collision: '{source}' written as '{renamed}' to avoid overwriting an existing file.");
     }
 
     process_file(source, &target_path, opts)
@@ -828,7 +833,7 @@ mod tests {
         // When the target path does not exist, the original name is returned as-is.
         let dir = tempfile::tempdir().expect("create temp dir");
         let name = std::ffi::OsStr::new("report.pdf");
-        let result = resolve_unique_target(dir.path(), name, &std::collections::HashSet::new());
+        let result = resolve_unique_target(dir.path(), name, None);
         assert_eq!(
             result,
             dir.path().join("report.pdf"),
@@ -842,7 +847,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("create temp dir");
         std::fs::write(dir.path().join("report.pdf"), b"original").expect("write");
         let name = std::ffi::OsStr::new("report.pdf");
-        let result = resolve_unique_target(dir.path(), name, &std::collections::HashSet::new());
+        let result = resolve_unique_target(dir.path(), name, None);
         assert_eq!(
             result,
             dir.path().join("report_1.pdf"),
@@ -857,7 +862,7 @@ mod tests {
         std::fs::write(dir.path().join("report.pdf"), b"a").expect("write base");
         std::fs::write(dir.path().join("report_1.pdf"), b"b").expect("write _1");
         let name = std::ffi::OsStr::new("report.pdf");
-        let result = resolve_unique_target(dir.path(), name, &std::collections::HashSet::new());
+        let result = resolve_unique_target(dir.path(), name, None);
         assert_eq!(
             result,
             dir.path().join("report_2.pdf"),
@@ -871,11 +876,28 @@ mod tests {
         let dir = tempfile::tempdir().expect("create temp dir");
         std::fs::write(dir.path().join("Makefile"), b"x").expect("write");
         let name = std::ffi::OsStr::new("Makefile");
-        let result = resolve_unique_target(dir.path(), name, &std::collections::HashSet::new());
+        let result = resolve_unique_target(dir.path(), name, None);
         assert_eq!(
             result,
             dir.path().join("Makefile_1"),
             "extension-less file: should return <name>_1"
+        );
+    }
+
+    #[test]
+    fn resolve_unique_target_respects_claimed_without_disk_collision() {
+        // report.pdf does NOT exist on disk, but it is present in the claimed
+        // set.  The function must treat it as occupied and return report_1.pdf.
+        // This exercises the claimed-set path independently of the filesystem.
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let mut claimed = std::collections::HashSet::new();
+        claimed.insert(dir.path().join("report.pdf"));
+        let name = std::ffi::OsStr::new("report.pdf");
+        let result = resolve_unique_target(dir.path(), name, Some(&claimed));
+        assert_eq!(
+            result,
+            dir.path().join("report_1.pdf"),
+            "path absent on disk but in claimed: should return <stem>_1.<ext>"
         );
     }
 
