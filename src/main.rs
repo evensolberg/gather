@@ -131,7 +131,7 @@ fn run() -> anyhow::Result<()> {
         } else {
             println!("Files copied:                {processed_file_count:5}");
         }
-        println!("Files skipped due to errors: {skipped_file_count:5}");
+        println!("Files skipped (errors or duplicates): {skipped_file_count:5}");
     }
 
     Ok(())

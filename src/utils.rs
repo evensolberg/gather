@@ -190,8 +190,7 @@ pub fn process_file(
             // Inaccessible (e.g. permission denied on stat) — report now so
             // the message matches the dry-run "(not accessible: …)" output.
             if opts.stop_on_error {
-                return Err(err)
-                    .with_context(|| format!("'{source}' is not accessible"));
+                return Err(err).with_context(|| format!("'{source}' is not accessible"));
             }
             log::warn!("'{source}' is not accessible ({err}). Skipping.");
             return Ok(false);
@@ -281,8 +280,7 @@ fn resolve_unique_target(
     // from the caller-supplied claimed set (if provided).  Passing None
     // skips the claimed check and incurs no allocation — the common case
     // for non-dry-run operation where the real filesystem is authoritative.
-    let is_free =
-        |p: &std::path::PathBuf| !p.exists() && claimed.is_none_or(|c| !c.contains(p));
+    let is_free = |p: &std::path::PathBuf| !p.exists() && claimed.is_none_or(|c| !c.contains(p));
 
     let base = dir.join(file_name);
     if is_free(&base) {
@@ -370,20 +368,50 @@ pub fn process_source(
     // via process_file and the comparison would require reading files that may
     // not yet exist at the target.
     let base_path = std::path::Path::new(target_dir).join(file_name);
-    if !opts.dry_run && target_path != base_path && files_are_identical(std::path::Path::new(source), &base_path) {
+
+    // Guard against self-targeting: if the source already lives at base_path
+    // (e.g. `gather /dst/report.pdf /dst`), files_are_identical reads the same
+    // inode twice, returns true, and remove_file would silently destroy the
+    // only copy of the file.  Canonicalize both paths to detect this through
+    // symlinks or relative components.
+    let source_is_base = std::path::Path::new(source)
+        .canonicalize()
+        .ok()
+        .zip(base_path.canonicalize().ok())
+        .is_some_and(|(s, b)| s == b);
+
+    // When the source is already at its natural target location, there is
+    // nothing to do — skip the entire operation so neither the dedup block
+    // nor process_file can accidentally rename or delete it.
+    if source_is_base {
+        log::debug!("'{source}' is already at the target location — skipping.");
+        return Ok(false);
+    }
+
+    if !opts.dry_run
+        && target_path != base_path
+        && files_are_identical(std::path::Path::new(source), &base_path)
+    {
         if opts.move_files {
             // Remove the redundant source so callers see clean move semantics.
             if let Err(err) = std::fs::remove_file(source) {
                 if opts.stop_on_error {
-                    return Err(err)
-                        .with_context(|| format!("Identical duplicate: unable to remove '{source}'"));
+                    return Err(err).with_context(|| {
+                        format!("Identical duplicate: unable to remove '{source}'")
+                    });
                 }
                 log::warn!("Identical duplicate: unable to remove '{source}': {err}");
                 return Ok(false);
             }
-            log::info!("'{source}' is identical to existing '{}' — redundant source removed.", base_path.display());
+            log::info!(
+                "'{source}' is identical to existing '{}' — redundant source removed.",
+                base_path.display()
+            );
         } else {
-            log::info!("'{source}' is identical to existing '{}' — skipping duplicate.", base_path.display());
+            log::info!(
+                "'{source}' is identical to existing '{}' — skipping duplicate.",
+                base_path.display()
+            );
         }
         return Ok(false);
     }
@@ -507,7 +535,10 @@ mod tests {
             !result.expect("should return Ok, not Err, in soft-error mode"),
             "directory source (copy, soft-error) should return Ok(false)"
         );
-        assert!(!tgt.exists(), "no target should be created for a directory source");
+        assert!(
+            !tgt.exists(),
+            "no target should be created for a directory source"
+        );
     }
 
     #[test]
@@ -737,10 +768,7 @@ mod tests {
         let f2 = dir.path().join("b.txt");
         std::fs::write(&f1, b"").expect("write f1");
         std::fs::write(&f2, b"").expect("write f2");
-        let sources = [
-            f1.to_str().expect("utf-8"),
-            f2.to_str().expect("utf-8"),
-        ];
+        let sources = [f1.to_str().expect("utf-8"), f2.to_str().expect("utf-8")];
         assert!(
             validate_sources(&sources).is_ok(),
             "all paths exist — should return Ok(())"
@@ -765,7 +793,6 @@ mod tests {
             "missing path should return Err"
         );
     }
-
 
     #[test]
     fn validate_sources_multiple_missing_reports_all() {
@@ -799,7 +826,10 @@ mod tests {
         let dir = tempfile::tempdir().expect("create temp dir");
         let sources = [dir.path().to_str().expect("utf-8")];
         let result = validate_sources(&sources);
-        assert!(result.is_err(), "a directory source + stop_on_error=true should return Err");
+        assert!(
+            result.is_err(),
+            "a directory source + stop_on_error=true should return Err"
+        );
         let msg = format!("{}", result.unwrap_err());
         assert!(
             msg.contains("not a regular file"),
@@ -823,7 +853,7 @@ mod tests {
             show_detail_info: false,
         };
         // "somedir/.." has no file_name() component.
-        let bad_path = format!("{}/..",&dir.path().display());
+        let bad_path = format!("{}/..", &dir.path().display());
         let result = process_source(&bad_path, dir.path().to_str().expect("utf-8"), &opts, None);
         assert!(
             !result.expect("soft-error invalid path should return Ok, not Err"),
@@ -841,9 +871,12 @@ mod tests {
             stop_on_error: true,
             show_detail_info: false,
         };
-        let bad_path = format!("{}/..",&dir.path().display());
+        let bad_path = format!("{}/..", &dir.path().display());
         let result = process_source(&bad_path, dir.path().to_str().expect("utf-8"), &opts, None);
-        assert!(result.is_err(), "invalid path + stop_on_error=true should return Err");
+        assert!(
+            result.is_err(),
+            "invalid path + stop_on_error=true should return Err"
+        );
     }
 
     #[test]
@@ -865,8 +898,14 @@ mod tests {
             &opts,
             None,
         );
-        assert!(result.expect("valid copy should return Ok"), "valid copy should return Ok(true)");
-        assert!(target_dir.path().join("in.txt").exists(), "copy must create target file");
+        assert!(
+            result.expect("valid copy should return Ok"),
+            "valid copy should return Ok(true)"
+        );
+        assert!(
+            target_dir.path().join("in.txt").exists(),
+            "copy must create target file"
+        );
         assert!(src.exists(), "copy must not remove source file");
     }
 
@@ -1128,15 +1167,21 @@ mod tests {
         );
 
         // Original file must be intact.
-        let first = std::fs::read(target_dir.path().join("report.pdf"))
-            .expect("report.pdf must exist");
+        let first =
+            std::fs::read(target_dir.path().join("report.pdf")).expect("report.pdf must exist");
         assert_eq!(first, b"content-a", "first file must not be overwritten");
 
         // Renamed copy must contain the second source's content.
         let renamed = target_dir.path().join("report_1.pdf");
-        assert!(renamed.exists(), "second copy must be renamed to report_1.pdf");
+        assert!(
+            renamed.exists(),
+            "second copy must be renamed to report_1.pdf"
+        );
         let second = std::fs::read(&renamed).expect("report_1.pdf must be readable");
-        assert_eq!(second, b"content-b", "second file content must be preserved");
+        assert_eq!(
+            second, b"content-b",
+            "second file content must be preserved"
+        );
     }
 
     #[test]
@@ -1187,14 +1232,17 @@ mod tests {
         assert!(!src_b.exists(), "second source must be gone after move");
 
         // Both targets must exist with correct content.
-        let first = std::fs::read(target_dir.path().join("report.pdf"))
-            .expect("report.pdf must exist");
+        let first =
+            std::fs::read(target_dir.path().join("report.pdf")).expect("report.pdf must exist");
         assert_eq!(first, b"content-a", "first target must not be overwritten");
 
         let renamed = target_dir.path().join("report_1.pdf");
         assert!(renamed.exists(), "second move must produce report_1.pdf");
         let second = std::fs::read(&renamed).expect("report_1.pdf must be readable");
-        assert_eq!(second, b"content-b", "second target content must be preserved");
+        assert_eq!(
+            second, b"content-b",
+            "second target content must be preserved"
+        );
     }
 
     // ---------------------------------------------------------------------------
@@ -1284,7 +1332,10 @@ mod tests {
             &opts,
             None,
         );
-        assert!(r_a.expect("first copy must not error"), "first copy: Ok(true)");
+        assert!(
+            r_a.expect("first copy must not error"),
+            "first copy: Ok(true)"
+        );
 
         // Second copy must be skipped — identical content already at target.
         let r_b = process_source(
@@ -1304,8 +1355,8 @@ mod tests {
             "report_1.pdf must not be created for an identical duplicate"
         );
         // Original report.pdf must still exist with correct content.
-        let content = std::fs::read(target_dir.path().join("report.pdf"))
-            .expect("report.pdf must exist");
+        let content =
+            std::fs::read(target_dir.path().join("report.pdf")).expect("report.pdf must exist");
         assert_eq!(content, b"same content", "target content must be preserved");
     }
 
@@ -1336,7 +1387,10 @@ mod tests {
             &opts,
             None,
         );
-        assert!(r_a.expect("first move must not error"), "first move: Ok(true)");
+        assert!(
+            r_a.expect("first move must not error"),
+            "first move: Ok(true)"
+        );
         assert!(!src_a.exists(), "first source must be removed after move");
 
         // Second move: identical content → source must be removed, no report_1.pdf.
@@ -1350,7 +1404,10 @@ mod tests {
             !r_b.expect("second move must not error"),
             "identical second source in move mode must return Ok(false)"
         );
-        assert!(!src_b.exists(), "duplicate source must be removed in move mode");
+        assert!(
+            !src_b.exists(),
+            "duplicate source must be removed in move mode"
+        );
         assert!(
             !target_dir.path().join("report_1.pdf").exists(),
             "report_1.pdf must not be created for an identical duplicate"
@@ -1377,15 +1434,62 @@ mod tests {
             show_detail_info: false,
         };
 
-        process_source(src_a.to_str().expect("utf-8"), target_dir.path().to_str().expect("utf-8"), &opts, None).unwrap();
-        let r_b = process_source(src_b.to_str().expect("utf-8"), target_dir.path().to_str().expect("utf-8"), &opts, None).unwrap();
+        process_source(
+            src_a.to_str().expect("utf-8"),
+            target_dir.path().to_str().expect("utf-8"),
+            &opts,
+            None,
+        )
+        .unwrap();
+        let r_b = process_source(
+            src_b.to_str().expect("utf-8"),
+            target_dir.path().to_str().expect("utf-8"),
+            &opts,
+            None,
+        )
+        .unwrap();
 
-        assert!(r_b, "different content collision must return Ok(true) after rename");
+        assert!(
+            r_b,
+            "different content collision must return Ok(true) after rename"
+        );
         assert!(
             target_dir.path().join("report_1.pdf").exists(),
             "report_1.pdf must be created when content differs"
         );
     }
+    // ---------------------------------------------------------------------------
+    // process_source — source-in-target self-targeting guard
+    // ---------------------------------------------------------------------------
 
+    #[test]
+    fn process_source_source_in_target_move_is_not_deleted() {
+        // When the source already lives inside the target directory (e.g.
+        // `gather /dst/report.pdf /dst`), the dedup block must not call
+        // remove_file on the source — that would silently destroy the only copy.
+        // The canonicalize guard detects same-inode paths and skips the removal.
+        let target_dir = tempfile::tempdir().expect("create target dir");
+        let file_path = target_dir.path().join("report.pdf");
+        std::fs::write(&file_path, b"content").expect("write file");
 
+        let opts = ProcessOptions {
+            dry_run: false,
+            move_files: true,
+            stop_on_error: false,
+            show_detail_info: false,
+        };
+
+        let result = process_source(
+            file_path.to_str().expect("utf-8"),
+            target_dir.path().to_str().expect("utf-8"),
+            &opts,
+            None,
+        );
+
+        assert!(result.is_ok(), "source-in-target must not return an error");
+        assert!(
+            file_path.exists(),
+            "source-in-target must not be deleted by the dedup block"
+        );
+    }
 }
