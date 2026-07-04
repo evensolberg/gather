@@ -573,6 +573,11 @@ fn serial_short_flag_copies_file() {
         dst.join("sample.txt").exists(),
         "-1 (--serial short alias) must copy the file to the target directory"
     );
+    assert_eq!(
+        fs::read(dst.join("sample.txt")).unwrap(),
+        b"hello",
+        "-1 must preserve file content identically to --serial"
+    );
 }
 
 /// `--serial` with multiple source files must copy all of them.
@@ -582,13 +587,13 @@ fn serial_copy_multiple_files() {
     let root = std::env::temp_dir().join(format!("gather_test_serial_multi_{pid}"));
     let dst = root.join("dst");
     fs::create_dir_all(&dst).expect("create dst dir");
+    let _guard = TempGuard(root.clone());
     let a = root.join("alpha.txt");
     let b = root.join("beta.txt");
     let c = root.join("gamma.txt");
     fs::write(&a, b"aaa").unwrap();
     fs::write(&b, b"bbb").unwrap();
     fs::write(&c, b"ccc").unwrap();
-    let _guard = TempGuard(root);
 
     run_gather(&[
         "--serial",
@@ -640,9 +645,9 @@ fn serial_collision_preserves_both_files() {
     fs::create_dir_all(&src_a).unwrap();
     fs::create_dir_all(&src_b).unwrap();
     fs::create_dir_all(&dst).unwrap();
+    let _guard = TempGuard(root.clone());
     fs::write(src_a.join("sample.txt"), b"from-a").unwrap();
     fs::write(src_b.join("sample.txt"), b"from-b").unwrap();
-    let _guard = TempGuard(root);
 
     run_gather(&[
         "--serial",
@@ -677,7 +682,67 @@ fn serial_print_summary_counts_correctly() {
         "expected summary header in stdout; got:\n{stdout}"
     );
     assert!(
-        stdout.contains("    1"),
-        "expected count of 1 in summary; got:\n{stdout}"
+        stdout.contains("Files copied:") && stdout.contains("    1"),
+        "expected 'Files copied:' with count 1 in summary; got:\n{stdout}"
+    );
+}
+/// `--serial --stop-on-error` with a missing source file must exit non-zero
+/// and abort processing.  In serial mode the `?` inside the for-loop
+/// short-circuits on the first error; this is distinct from the parallel path
+/// where workers complete before errors are surfaced.
+#[test]
+fn serial_stop_on_error_aborts_on_missing_source() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let dst = tmp.path().join("dst");
+    fs::create_dir_all(&dst).expect("create dst dir");
+
+    let real = tmp.path().join("real.txt");
+    fs::write(&real, b"data").expect("write real file");
+    let missing = tmp.path().join("missing.txt"); // intentionally never created
+
+    let output = Command::new(GATHER)
+        .args([
+            "--serial",
+            "--stop-on-error",
+            real.to_str().unwrap(),
+            missing.to_str().unwrap(),
+            "-t",
+            dst.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run gather");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "--serial --stop-on-error must exit non-zero when a source is missing; got 0\nstderr: {stderr}"
+    );
+    assert!(
+        stderr.contains(missing.to_str().unwrap()),
+        "expected the missing path in stderr; got:\n{stderr}"
+    );
+}
+
+/// `--serial --dry-run` must show the copy-preview banner and per-file lines,
+/// and must not create any files.  Both flags share the `serial || dry_run`
+/// branch in `main.rs`; combining them guards that branch against refactoring.
+#[test]
+fn serial_dry_run_shows_preview_and_creates_no_files() {
+    let (_guard, src, dst) = setup_tmp("serial_dry");
+    let src_str = src.to_str().unwrap();
+    let dst_str = dst.to_str().unwrap();
+    let stdout = run_gather(&["--serial", "--dry-run", src_str, "-t", dst_str]);
+    assert!(
+        stdout.contains("Starting dry-run."),
+        "expected dry-run banner with --serial --dry-run; got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("==>") && stdout.contains(src_str),
+        "expected file preview with --serial --dry-run; got:\n{stdout}"
+    );
+    assert!(
+        !dst.join("sample.txt").exists(),
+        "--serial --dry-run must not create any files"
     );
 }
