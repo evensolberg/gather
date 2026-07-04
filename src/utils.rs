@@ -340,12 +340,6 @@ pub fn process_source(
         claimed.as_deref(),
     );
 
-    // Register the chosen path so subsequent calls in the same dry-run pass
-    // see it as occupied (claimed is None in non-dry-run mode, so this is a no-op).
-    if let Some(c) = claimed {
-        c.insert(target_path.clone());
-    }
-
     // Warn when the target name was changed to avoid a silent overwrite.
     // Emit only the filename (not the full path) to keep the message scannable.
     // resolve_unique_target always joins a name onto the directory, so the
@@ -356,7 +350,17 @@ pub fn process_source(
         log::warn!("Name collision: '{source}' written as '{renamed}' to avoid overwriting an existing file.");
     }
 
-    process_file(source, &target_path, opts)
+    // Register the chosen path ONLY when the operation succeeds (Ok(true)).
+    // Inserting unconditionally would consume the slot even when the source is
+    // absent or invalid (Ok(false)), forcing a subsequent valid source with the
+    // same basename to an unnecessary _1 suffix in the dry-run preview.
+    let outcome = process_file(source, &target_path, opts)?;
+    if outcome {
+        if let Some(c) = claimed {
+            c.insert(target_path);
+        }
+    }
+    Ok(outcome)
 }
 
 #[cfg(test)]
@@ -900,6 +904,68 @@ mod tests {
     // ---------------------------------------------------------------------------
 
     #[test]
+    fn process_source_dry_run_skipped_source_does_not_consume_slot() {
+        // When a source is absent in dry-run mode, process_file returns Ok(false).
+        // The target slot must NOT be inserted into `claimed` in that case —
+        // a subsequent valid source with the same basename must still land at
+        // the base name, not a needlessly-suffixed _1 variant.
+        let src_dir_a = tempfile::tempdir().expect("create src dir a");
+        let src_dir_b = tempfile::tempdir().expect("create src dir b");
+        let target_dir = tempfile::tempdir().expect("create target dir");
+
+        // First source: intentionally absent (not created on disk).
+        let absent = src_dir_a.path().join("report.pdf");
+
+        // Second source: valid file with the same basename.
+        let valid = src_dir_b.path().join("report.pdf");
+        std::fs::write(&valid, b"content").expect("write valid src");
+
+        let opts = ProcessOptions {
+            dry_run: true,
+            move_files: false,
+            stop_on_error: false,
+            show_detail_info: false,
+        };
+
+        let mut claimed = std::collections::HashSet::new();
+
+        // Absent source returns Ok(false) and must NOT claim the slot.
+        let r_a = process_source(
+            absent.to_str().expect("utf-8"),
+            target_dir.path().to_str().expect("utf-8"),
+            &opts,
+            Some(&mut claimed),
+        );
+        assert!(
+            !r_a.expect("absent source: should return Ok, not Err"),
+            "absent source must return Ok(false)"
+        );
+
+        // Valid source must land at the base name — the slot is still free.
+        let r_b = process_source(
+            valid.to_str().expect("utf-8"),
+            target_dir.path().to_str().expect("utf-8"),
+            &opts,
+            Some(&mut claimed),
+        );
+        assert!(
+            r_b.expect("valid source: should succeed"),
+            "valid source must return Ok(true)"
+        );
+
+        let base = target_dir.path().join("report.pdf");
+        assert!(
+            claimed.contains(&base),
+            "valid source must claim the base slot; claimed: {claimed:?}"
+        );
+        let suffixed = target_dir.path().join("report_1.pdf");
+        assert!(
+            !claimed.contains(&suffixed),
+            "report_1.pdf must NOT be claimed — base was free; claimed: {claimed:?}"
+        );
+    }
+
+        #[test]
     fn process_source_dry_run_collision_shows_distinct_targets() {
         // In dry-run mode no files are written to disk, so resolve_unique_target
         // would see an empty target for every call and predict the same path for
