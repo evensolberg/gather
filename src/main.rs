@@ -12,11 +12,13 @@ fn run() -> anyhow::Result<()> {
     // Set up logging
     utils::log_build(&cli_args);
 
-    // create a list of the files to gather
-    let sources = cli_args
+    // Collect source paths into a Vec so we can run the pre-flight existence
+    // check over the whole list before touching any files.
+    let sources: Vec<&str> = cli_args
         .get_many::<String>("read")
         .unwrap_or_default()
-        .map(String::as_str);
+        .map(String::as_str)
+        .collect();
     log::debug!("files_to_gather: {sources:?}");
 
     // Verify that the target exists and that it is a directory
@@ -48,15 +50,29 @@ fn run() -> anyhow::Result<()> {
         println!("Starting dry-run.");
     }
 
+    // Pre-flight: abort if any source path is absent, inaccessible, or not a
+    // regular file before touching any files.  Dry-run intentionally skips
+    // this — dry-run is a best-effort preview ("what would happen?") and
+    // should show per-file notices rather than aborting, even with --stop.
+    if opts.stop_on_error && !opts.dry_run {
+        utils::validate_sources(&sources)?;
+    }
+
     let mut total_file_count: usize = 0;
     let mut processed_file_count: usize = 0;
     let mut skipped_file_count: usize = 0;
 
     // Gather files
-    for source in sources {
+    for source in sources.iter().copied() {
         total_file_count += 1;
 
-        // Paths ending in "/" or ".." have no filename component — treat like any other error.
+        // Path::file_name() returns None when the last path component is ".."
+        // (Component::ParentDir, e.g. "foo/..") or the path is the root "/"
+        // (Component::RootDir) — neither has a usable target filename.
+        // In soft-error mode validate_sources is not called, so this guard is
+        // the sole protection; in stop_on_error mode validate_sources will
+        // have already rejected such paths (e.g. as not found, not a regular
+        // file, or inaccessible), making the bail! branch a defensive fallback.
         let Some(file_name) = Path::new(source).file_name() else {
             if opts.stop_on_error {
                 anyhow::bail!("Invalid filename in path: {source}. Halting.");

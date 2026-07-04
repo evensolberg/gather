@@ -330,3 +330,216 @@ fn move_error_message_contains_no_quotes() {
         "move error message must not contain quote characters; got:\n{stderr}"
     );
 }
+
+// -------------------------------------------------------------------
+// gtr-wek — pre-flight existence validation before the processing loop
+// -------------------------------------------------------------------
+
+/// With `--stop-on-error`, a missing source file must cause exit 1 with an
+/// error message on stderr *before* any other file is processed.  The real
+/// file must NOT be copied — the pre-flight pass aborts before any I/O.
+#[test]
+fn preflight_missing_source_stop_on_error_exits_nonzero() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let dst = tmp.path().join("dst");
+    fs::create_dir_all(&dst).expect("create dst dir");
+
+    // One real file + one absent file (tempdir-scoped to guarantee absence).
+    let real = tmp.path().join("real.txt");
+    fs::write(&real, b"data").expect("write real file");
+    let missing = tmp.path().join("missing.txt"); // intentionally never created
+
+    let output = Command::new(GATHER)
+        .arg("--stop-on-error")
+        .arg(real.to_str().unwrap())
+        .arg(missing.to_str().unwrap())
+        .arg("-t")
+        .arg(&dst)
+        .output()
+        .expect("failed to run gather");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "expected non-zero exit when a source is missing with --stop-on-error; got 0\nstderr: {stderr}"
+    );
+    // The fatal error must name the missing path and appear on stderr.
+    assert!(
+        stderr.contains(missing.to_str().unwrap()),
+        "expected missing path in stderr; got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("not found"),
+        "expected 'not found' in stderr; got:\n{stderr}"
+    );
+    // No normal processing output should appear on stdout.
+    assert!(
+        stdout.is_empty(),
+        "expected stdout to be empty when pre-flight aborts; got:\n{stdout}"
+    );
+    assert!(
+        !dst.join("real.txt").exists(),
+        "real.txt must NOT be copied when pre-flight aborts before processing"
+    );
+}
+
+/// Without `--stop-on-error`, a missing source file should produce a warning
+/// on stdout but the process must still exit 0 and process the existing files.
+#[test]
+fn preflight_missing_source_without_stop_on_error_continues() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let dst = tmp.path().join("dst");
+    fs::create_dir_all(&dst).expect("create dst dir");
+
+    let real = tmp.path().join("real.txt");
+    fs::write(&real, b"data").expect("write real file");
+    let missing = tmp.path().join("missing.txt"); // intentionally never created
+
+    let output = Command::new(GATHER)
+        .arg(real.to_str().unwrap())
+        .arg(missing.to_str().unwrap())
+        .arg("-t")
+        .arg(&dst)
+        .output()
+        .expect("failed to run gather");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "expected exit 0 (continue mode) for missing source without --stop-on-error; got {:?}\nstderr: {stderr}",
+        output.status,
+    );
+    // The warning must mention the missing path and "not found" on stdout
+    // (the logger is configured with Target::Stdout).
+    assert!(
+        stdout.contains(missing.to_str().unwrap()),
+        "expected missing path in stdout warning; got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("not found"),
+        "expected 'not found' in stdout warning; got:\n{stdout}"
+    );
+    // Nothing should have been written to stderr in continue mode.
+    assert!(
+        stderr.is_empty(),
+        "expected stderr to be empty in continue mode; got:\n{stderr}"
+    );
+    // The real file must have been copied despite the missing one.
+    assert!(
+        dst.join("real.txt").exists(),
+        "real.txt must be copied even when another source is missing"
+    );
+}
+
+/// With `--stop-on-error` and multiple missing files, ALL missing paths must
+/// be reported in the pre-flight pass (not just the first one).
+#[test]
+fn preflight_multiple_missing_all_reported_with_stop_on_error() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let dst = tmp.path().join("dst");
+    fs::create_dir_all(&dst).expect("create dst dir");
+
+    // Tempdir-scoped paths guarantee absence without relying on the working directory.
+    let missing_a = tmp.path().join("absent_alpha.txt"); // intentionally never created
+    let missing_b = tmp.path().join("absent_beta.txt"); // intentionally never created
+
+    let output = Command::new(GATHER)
+        .arg("--stop-on-error")
+        .arg(missing_a.to_str().unwrap())
+        .arg(missing_b.to_str().unwrap())
+        .arg("-t")
+        .arg(&dst)
+        .output()
+        .expect("failed to run gather");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Both missing absolute paths must appear somewhere in stderr output.
+    assert!(
+        stderr.contains(missing_a.to_str().unwrap()),
+        "stderr must mention the first missing file; got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains(missing_b.to_str().unwrap()),
+        "stderr must mention the second missing file; got:\n{stderr}"
+    );
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "expected non-zero exit when sources are missing with --stop-on-error"
+    );
+}
+
+/// `--dry-run` with a missing source file must print a "(not found)" notice on
+/// stdout so the user knows which files would be skipped — the summary alone
+/// ("Files skipped due to errors: 1") provides no filename.
+#[test]
+fn dry_run_missing_source_shows_not_found_notice() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let dst = tmp.path().join("dst");
+    fs::create_dir_all(&dst).expect("create dst dir");
+
+    // Tempdir-scoped path guarantees absence without relying on the working directory.
+    let missing = tmp.path().join("absent_source.txt"); // intentionally never created
+    let missing_str = missing.to_str().unwrap();
+
+    let stdout = run_gather(&["--dry-run", missing_str, "-t", dst.to_str().unwrap()]);
+
+    assert!(
+        stdout.contains(missing_str),
+        "expected the missing absolute path to appear in dry-run stdout; got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("not found"),
+        "expected a 'not found' notice in dry-run stdout for a missing source; got:\n{stdout}"
+    );
+}
+
+/// `--dry-run` combined with `--stop-on-error` must still produce the preview
+/// output and exit 0 — dry-run is a best-effort preview regardless of --stop.
+/// validate_sources is intentionally skipped in dry-run mode; per-file "(not
+/// found — would be skipped)" notices are shown instead of aborting.
+#[test]
+fn dry_run_with_stop_on_error_still_shows_preview() {
+    let tmp = tempfile::tempdir().expect("create temp dir");
+    let dst = tmp.path().join("dst");
+    fs::create_dir_all(&dst).expect("create dst dir");
+
+    let real = tmp.path().join("real.txt");
+    fs::write(&real, b"data").expect("write real file");
+    let missing = tmp.path().join("missing.txt"); // intentionally never created
+
+    let output = Command::new(GATHER)
+        .arg("--dry-run")
+        .arg("--stop-on-error")
+        .arg(real.to_str().unwrap())
+        .arg(missing.to_str().unwrap())
+        .arg("-t")
+        .arg(&dst)
+        .output()
+        .expect("failed to run gather");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Dry-run must exit 0 even with --stop-on-error.
+    assert!(
+        output.status.success(),
+        "expected exit 0 (dry-run is best-effort preview); got {:?}
+stderr: {stderr}",
+        output.status,
+    );
+    // The missing file must appear in the preview with a "(not found)" notice.
+    assert!(
+        stdout.contains("not found"),
+        "expected '(not found)' in dry-run stdout for missing source; got:
+{stdout}"
+    );
+    // No files should have been created in the destination.
+    assert!(
+        !dst.join("real.txt").exists(),
+        "dry-run must not copy any files"
+    );
+}
+
