@@ -182,25 +182,25 @@ pub fn process_file(
         return Ok(true);
     }
 
-    // Guard: check source is a regular file before operating on it.
+    // Guard: check source exists and is a regular file before operating on it.
     // Without this, --move mode would silently succeed for a directory on Unix
     // (fs::rename is directory-aware), contradicting the dry-run preview and
-    // the tool's file-only semantics.  Handling Err cases here (absent,
-    // inaccessible) keeps the real-run messages consistent with dry-run, where
-    // the same conditions are also reported explicitly rather than deferred to
-    // fs::copy / fs::rename.  On a TOCTOU race (file disappears between this
-    // check and the copy), the copy will fail and the error is surfaced below.
+    // the tool's file-only semantics.  All error arms match the corresponding
+    // dry-run messages so the two modes report the same conditions consistently.
     match std::fs::metadata(source) {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            // Absent file — consistent with dry-run "(not found)" notice.
-            // Fall through to fs::copy/rename which will produce an OS error;
-            // this mirrors the pre-flight path and avoids double-reporting.
+            // Absent file — match dry-run "(not found — would be skipped)".
+            if opts.stop_on_error {
+                anyhow::bail!("'{source}' not found");
+            }
+            log::warn!("'{source}' not found. Skipping.");
+            return Ok(false);
         }
         Err(err) => {
             // Inaccessible (e.g. permission denied on stat) — report now so
             // the message matches the dry-run "(not accessible: …)" output.
             if opts.stop_on_error {
-                return Err(anyhow::Error::from(err))
+                return Err(err)
                     .with_context(|| format!("'{source}' is not accessible"));
             }
             log::warn!("'{source}' is not accessible ({err}). Skipping.");
@@ -569,7 +569,7 @@ mod tests {
             f2.to_str().expect("utf-8"),
         ];
         // Use stop_on_error=true so the function actually performs the
-        // try_exists() scan rather than returning early at the guard.
+        // metadata() scan rather than returning early at the guard.
         let opts = ProcessOptions {
             dry_run: false,
             move_files: false,
