@@ -63,8 +63,9 @@ fn run() -> anyhow::Result<()> {
     for source in sources.iter().copied() {
         total_file_count += 1;
 
-        // Paths whose last component is ".." (e.g. "foo/..") or that are the
-        // root ("/") have no filename component — treat like any other error.
+        // Path::file_name() returns None when the last path component is ".."
+        // (Component::ParentDir, e.g. "foo/..") or the path is the root "/"
+        // (Component::RootDir) — neither has a usable target filename.
         // In soft-error mode validate_sources is a no-op so this guard is the
         // sole protection; in stop_on_error mode validate_sources catches these
         // paths first (as "not a regular file"), making the bail! branch a
