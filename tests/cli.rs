@@ -696,6 +696,7 @@ fn serial_print_summary_counts_correctly() {
         .expect("expected a numeric count at the end of the 'Files copied:' line");
     assert_eq!(count, 1, "expected Files copied count to be 1; got {count}");
 }
+
 /// `--serial --stop-on-error` with a missing source file must exit 1 and copy
 /// no files.  With `--stop-on-error` and no `--dry-run`, `validate_sources`
 /// runs a pre-flight check over the whole list before any I/O; the missing
